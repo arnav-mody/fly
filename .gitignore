@@ -1,0 +1,15 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Dependencies / build output (once we add tooling)
+node_modules/
+dist/
+.vercel/
+.supabase/
+supabase/.temp/
+
+# OS/editor cruft
+.DS_Store
+Thumbs.db

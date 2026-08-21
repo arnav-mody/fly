@@ -1,0 +1,144 @@
+-- Mody-Gandhi Travel Tracker — initial schema
+-- Run this once in the Supabase Dashboard → SQL Editor (paste + Run).
+-- Safe to re-run: every statement is idempotent.
+
+-- ── Reference data ──────────────────────────────────────────────────────────
+create table if not exists airlines (
+  code  text primary key,        -- IATA airline code, e.g. 'UA'
+  name  text not null,
+  color text not null            -- hex, used for card accents
+);
+
+create table if not exists airports (
+  code    text primary key,      -- IATA airport code, e.g. 'SFO'
+  city    text not null,
+  country text not null,
+  name    text not null,
+  lat     double precision,
+  lon     double precision,
+  tz      text                   -- display label only (e.g. 'PDT'), not authoritative
+);
+
+-- ── Family roster ────────────────────────────────────────────────────────────
+create table if not exists family_members (
+  id           text primary key,   -- short slug, e.g. 'bharat'
+  first_name   text not null,
+  last_name    text not null,
+  nickname     text,
+  role         text,
+  home_city    text,
+  home_airport text references airports(code),
+  tone         int not null default 1,   -- monogram color index (1..10)
+  created_at   timestamptz not null default now()
+);
+
+-- ── Flights ───────────────────────────────────────────────────────────────────
+create table if not exists flights (
+  id               uuid primary key default gen_random_uuid(),
+  airline_code     text references airlines(code),
+  flight_number    text not null,
+  from_airport     text references airports(code),
+  to_airport       text references airports(code),
+  depart_at        timestamptz not null,
+  arrive_at        timestamptz not null,
+  aircraft         text,
+  seat             text,
+  gate             text,
+  terminal         text,
+  confirmation     text,
+  note             text,
+  source           text not null default 'manual',  -- 'manual' | 'upload' | 'paste'
+  source_image_path text,          -- Storage path in the boarding-passes bucket, if applicable
+  submitted_by     text references family_members(id),
+  created_at       timestamptz not null default now()
+);
+
+-- Many-to-many: a flight can have multiple travelers (e.g. Priya & Raj together).
+create table if not exists flight_travelers (
+  flight_id        uuid references flights(id) on delete cascade,
+  family_member_id text references family_members(id),
+  primary key (flight_id, family_member_id)
+);
+
+-- ── Live-status cache ─────────────────────────────────────────────────────────
+-- Populated by a scheduled backend job that polls FlightAware for near-term
+-- flights only. The frontend reads this table, never the flight-status API
+-- directly — that's what keeps us inside the free/cheap tier regardless of
+-- how many family members have the page open at once.
+create table if not exists flight_status_cache (
+  flight_id  uuid primary key references flights(id) on delete cascade,
+  status     jsonb not null,       -- shaped for the UI: { status, progress, gate, etc. }
+  fetched_at timestamptz not null default now()
+);
+
+-- ── Row Level Security ────────────────────────────────────────────────────────
+-- Reads are open to anyone holding the publishable key (no family login exists
+-- yet — see chat for the tradeoff). Writes have NO policy for that role at all,
+-- so every insert/update must go through the backend Edge Function using the
+-- secret key, which bypasses RLS. That's the choke point where we validate
+-- and sanitize whatever the AI parsed before it ever reaches this table.
+alter table airlines            enable row level security;
+alter table airports            enable row level security;
+alter table family_members      enable row level security;
+alter table flights             enable row level security;
+alter table flight_travelers    enable row level security;
+alter table flight_status_cache enable row level security;
+
+do $$ begin
+  create policy "public read" on airlines            for select using (true);
+  create policy "public read" on airports            for select using (true);
+  create policy "public read" on family_members      for select using (true);
+  create policy "public read" on flights             for select using (true);
+  create policy "public read" on flight_travelers    for select using (true);
+  create policy "public read" on flight_status_cache for select using (true);
+exception when duplicate_object then null; -- safe to re-run
+end $$;
+
+-- ── Seed: reference data + family roster (mirrors data.js) ──────────────────
+insert into airports (code, city, country, name, lat, lon, tz) values
+  ('JFK','New York','USA','John F. Kennedy Intl',40.64,-73.78,'EDT'),
+  ('EWR','Newark','USA','Newark Liberty',40.69,-74.17,'EDT'),
+  ('SFO','San Francisco','USA','San Francisco Intl',37.62,-122.38,'PDT'),
+  ('LAX','Los Angeles','USA','Los Angeles Intl',33.94,-118.41,'PDT'),
+  ('SEA','Seattle','USA','Seattle-Tacoma Intl',47.45,-122.31,'PDT'),
+  ('PHX','Phoenix','USA','Sky Harbor',33.43,-112.01,'MST'),
+  ('ATL','Atlanta','USA','Hartsfield-Jackson',33.64,-84.43,'EDT'),
+  ('AUS','Austin','USA','Austin-Bergstrom',30.20,-97.67,'CDT'),
+  ('ORD','Chicago','USA',"O'Hare Intl",41.98,-87.91,'CDT'),
+  ('LHR','London','UK','Heathrow',51.47,-0.45,'BST'),
+  ('CDG','Paris','France','Charles de Gaulle',49.01,2.55,'CEST'),
+  ('DEL','Delhi','India','Indira Gandhi Intl',28.55,77.10,'IST'),
+  ('BLR','Bangalore','India','Kempegowda Intl',13.20,77.71,'IST'),
+  ('BOM','Mumbai','India','Chhatrapati Shivaji',19.09,72.87,'IST'),
+  ('DXB','Dubai','UAE','Dubai Intl',25.25,55.36,'GST'),
+  ('NRT','Tokyo','Japan','Narita Intl',35.77,140.39,'JST')
+on conflict (code) do nothing;
+
+insert into airlines (code, name, color) values
+  ('AI','Air India','#c8102e'),
+  ('UA','United','#005daa'),
+  ('AS','Alaska Airlines','#003561'),
+  ('DL','Delta','#9b1c2e'),
+  ('BA','British Airways','#075aaa'),
+  ('WN','Southwest','#f9b612'),
+  ('AA','American','#0078d2'),
+  ('EK','Emirates','#d71a21'),
+  ('AF','Air France','#002157')
+on conflict (code) do nothing;
+
+insert into family_members (id, first_name, last_name, nickname, role, home_city, home_airport, tone) values
+  ('bharat','Bharat','Mody','Dadaji','Patriarch · The Tracker','Phoenix, AZ','PHX',1),
+  ('asha','Asha','Mody','Dadiji','Matriarch','Phoenix, AZ','PHX',2),
+  ('priya','Priya','Mody-Gandhi',null,'Daughter · Architect','San Francisco','SFO',3),
+  ('raj','Raj','Gandhi',null,'Son-in-law · Cardiologist','San Francisco','SFO',4),
+  ('aarav','Aarav','Mody-Gandhi',null,"Grandson · NYU '26",'New York','JFK',5),
+  ('diya','Diya','Mody-Gandhi',null,'Granddaughter · senior in HS','San Francisco','SFO',6),
+  ('meera','Meera','Iyer',null,'Daughter · Pediatrician','Seattle, WA','SEA',7),
+  ('vikram','Vikram','Iyer',null,'Son-in-law · Designer','Seattle, WA','SEA',8),
+  ('kavya','Kavya','Iyer',null,'Granddaughter · 16','Seattle, WA','SEA',9),
+  ('arjun','Arjun','Iyer',null,'Grandson · 14','Seattle, WA','SEA',10)
+on conflict (id) do nothing;
+
+-- Note: FLIGHTS is intentionally NOT seeded — those were fictional demo data
+-- pinned to a fake "NOW" for the prototype. Real flights start empty and get
+-- added by the family from here on.
