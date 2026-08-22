@@ -23,6 +23,49 @@ async function readFunctionError(error) {
   return error.message || "Something went wrong.";
 }
 
+// Resize + re-encode any uploaded image client-side, before it goes
+// anywhere. Two birds, one stone: Claude's vision encoder doesn't get any
+// more useful out of an image bigger than ~1568px on the long edge — beyond
+// that you're just paying more bandwidth and tokens for nothing — and
+// redrawing through a canvas always outputs plain JPEG regardless of the
+// source format, which quietly fixes formats Claude can't read directly
+// (HEIC off an iPhone, etc.) as long as the browser itself can decode them.
+const MAX_UPLOAD_DIM = 1568;
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // sanity cap before we even try decoding
+
+async function resizeImageForUpload(file) {
+  if (file.size > MAX_UPLOAD_BYTES) {
+    throw new Error("That file's too large (over 20MB) — try a smaller photo or a screenshot instead?");
+  }
+
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch (e) {
+    throw new Error("Couldn't read that image — try a different file or format?");
+  }
+
+  const scale = Math.min(1, MAX_UPLOAD_DIM / Math.max(bitmap.width, bitmap.height));
+  const w = Math.max(1, Math.round(bitmap.width * scale));
+  const h = Math.max(1, Math.round(bitmap.height * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  if (bitmap.close) bitmap.close();
+
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("Couldn't process that image."))),
+      "image/jpeg",
+      0.9
+    );
+  });
+  return blob;
+}
+
 // ── Modal shell ─────────────────────────────────────────────────────────────
 function Modal({ open, onClose, children, size = "lg" }) {
   React.useEffect(() => {
@@ -313,40 +356,45 @@ function AddTripModal({ open, onClose, onSubmit }) {
     setUploadError(null);
     setUploadParsed(null);
 
-    const reader = new FileReader();
-    reader.onerror = () => { setUploading(false); setUploadError("Couldn't read that file — try a different one?"); };
-    reader.onload = () => {
-      const base64 = String(reader.result).split(",")[1];
-      window.supabaseClient.functions.invoke("parse-flight", {
-        body: { image: base64, mediaType: file.type },
-      }).then(async ({ data, error }) => {
-        setUploading(false);
-        if (error || !data || !data.ok) {
-          const message = (data && data.error) || await readFunctionError(error) || "Couldn't read that image — try Quick Form instead?";
-          setUploadError(message);
-          return;
-        }
-        const p = data.parsed;
-        setImagePath(data.imagePath);
-        setUploadParsed(p);
-        setForm((f) => ({
-          ...f,
-          airline: (p.airline_code || f.airline || "").toUpperCase(),
-          number: p.flight_number || f.number,
-          from: (p.from_airport || f.from || "").toUpperCase(),
-          to: (p.to_airport || f.to || "").toUpperCase(),
-          date: p.date || f.date,
-          departTime: p.depart_time || f.departTime,
-          arriveTime: p.arrive_time || f.arriveTime,
-          seat: p.seat || f.seat,
-          confirmation: p.confirmation || f.confirmation,
-        }));
-      }).catch((err) => {
-        setUploading(false);
-        setUploadError(String((err && err.message) || err));
-      });
-    };
-    reader.readAsDataURL(file);
+    resizeImageForUpload(file).then((blob) => {
+      const reader = new FileReader();
+      reader.onerror = () => { setUploading(false); setUploadError("Couldn't read that file — try a different one?"); };
+      reader.onload = () => {
+        const base64 = String(reader.result).split(",")[1];
+        window.supabaseClient.functions.invoke("parse-flight", {
+          body: { image: base64, mediaType: "image/jpeg" },
+        }).then(async ({ data, error }) => {
+          setUploading(false);
+          if (error || !data || !data.ok) {
+            const message = (data && data.error) || await readFunctionError(error) || "Couldn't read that image — try Quick Form instead?";
+            setUploadError(message);
+            return;
+          }
+          const p = data.parsed;
+          setImagePath(data.imagePath);
+          setUploadParsed(p);
+          setForm((f) => ({
+            ...f,
+            airline: (p.airline_code || f.airline || "").toUpperCase(),
+            number: p.flight_number || f.number,
+            from: (p.from_airport || f.from || "").toUpperCase(),
+            to: (p.to_airport || f.to || "").toUpperCase(),
+            date: p.date || f.date,
+            departTime: p.depart_time || f.departTime,
+            arriveTime: p.arrive_time || f.arriveTime,
+            seat: p.seat || f.seat,
+            confirmation: p.confirmation || f.confirmation,
+          }));
+        }).catch((err) => {
+          setUploading(false);
+          setUploadError(String((err && err.message) || err));
+        });
+      };
+      reader.readAsDataURL(blob);
+    }).catch((err) => {
+      setUploading(false);
+      setUploadError(String((err && err.message) || err));
+    });
   };
 
   return (
@@ -403,7 +451,7 @@ function AddTripModal({ open, onClose, onSubmit }) {
               <input
                 id="at-file-input"
                 type="file"
-                accept="image/png,image/jpeg,image/webp,image/gif"
+                accept="image/*"
                 onChange={handleFileSelect}
                 style={{ display: "none" }}
               />
@@ -411,7 +459,7 @@ function AddTripModal({ open, onClose, onSubmit }) {
               <div className="at__drop-title">
                 {uploading ? "Reading your boarding pass…" : "Upload a photo of your boarding pass or ticket"}
               </div>
-              <div className="at__drop-sub">Click to choose a file · PNG, JPG, or WebP</div>
+              <div className="at__drop-sub">Click to choose a file — any photo or screenshot works</div>
               {uploading && <div className="at__drop-loading">This usually takes a few seconds…</div>}
             </label>
             {uploadError && (
