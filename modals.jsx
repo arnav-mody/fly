@@ -7,6 +7,22 @@ const _airline      = window.MGData.airline;
 const _airport      = window.MGData.airport;
 const _flightAwareUrl = window.MGData.flightAwareUrl;
 
+// supabase-js only exposes a generic "Edge Function returned a non-2xx
+// status code" on failure — it doesn't parse the response body for you. The
+// actual JSON error we sent back (see parse-flight/save-flight) is sitting
+// on error.context, which is the raw Response object. Dig it out so people
+// see the real reason instead of this one useless sentence every time.
+async function readFunctionError(error) {
+  if (!error) return null;
+  try {
+    if (error.context && typeof error.context.json === "function") {
+      const body = await error.context.clone().json();
+      if (body && body.error) return body.error;
+    }
+  } catch (e) { /* body wasn't JSON — fall through to the generic message */ }
+  return error.message || "Something went wrong.";
+}
+
 // ── Modal shell ─────────────────────────────────────────────────────────────
 function Modal({ open, onClose, children, size = "lg" }) {
   React.useEffect(() => {
@@ -251,10 +267,11 @@ function AddTripModal({ open, onClose, onSubmit }) {
         imagePath: imagePath || null,
         travelerIds: form.travelers,
       },
-    }).then(({ data, error }) => {
+    }).then(async ({ data, error }) => {
       setSaving(false);
       if (error || !data || !data.ok) {
-        setSubmitError((data && data.error) || (error && error.message) || "Couldn't save this flight — mind trying again?");
+        const message = (data && data.error) || await readFunctionError(error) || "Couldn't save this flight — mind trying again?";
+        setSubmitError(message);
         return;
       }
       onSubmit(data.flight);
@@ -302,10 +319,11 @@ function AddTripModal({ open, onClose, onSubmit }) {
       const base64 = String(reader.result).split(",")[1];
       window.supabaseClient.functions.invoke("parse-flight", {
         body: { image: base64, mediaType: file.type },
-      }).then(({ data, error }) => {
+      }).then(async ({ data, error }) => {
         setUploading(false);
         if (error || !data || !data.ok) {
-          setUploadError((data && data.error) || (error && error.message) || "Couldn't read that image — try Quick Form instead?");
+          const message = (data && data.error) || await readFunctionError(error) || "Couldn't read that image — try Quick Form instead?";
+          setUploadError(message);
           return;
         }
         const p = data.parsed;
