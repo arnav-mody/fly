@@ -404,6 +404,17 @@
       letter-spacing: 0.06em; margin-top: 2px;
     }
     .route-ribbon { width: 100%; height: 60px; }
+    /* Train/car cards skip the geographic route ribbon/map (no coordinates
+       for a plain city name) and show a simple mode icon in its place. */
+    .mode-connector {
+      display: flex; align-items: center; justify-content: center;
+      height: 60px; font-size: 1.4rem; opacity: 0.7;
+    }
+    .tcard__mode-block {
+      width: 100%; display: flex; align-items: center; justify-content: center;
+      background: var(--paper-soft); border: 0.5px solid var(--paper-line);
+      border-radius: 14px; font-size: 2.4rem; box-sizing: border-box;
+    }
     .card__note {
       font-family: var(--font-serif); font-style: italic; color: var(--ink-soft);
       font-size: 0.95rem; line-height: 1.4;
@@ -430,8 +441,9 @@
     .avatar {
       border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
       font-family: var(--font-serif); font-weight: 500; letter-spacing: -0.02em;
-      flex-shrink: 0; border: 1.5px solid var(--paper);
+      flex-shrink: 0; border: 1.5px solid var(--paper); overflow: hidden;
     }
+    .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .avatar[data-ring="1"] { box-shadow: 0 0 0 2px var(--accent); }
     .avatar-stack { display: inline-flex; }
     .avatar-stack .avatar:not(:first-child) { margin-left: calc(var(--av-size) * -0.3); }
@@ -689,9 +701,7 @@
 
     .fd__details--reactions { background: var(--paper-soft); border-radius: 0 0 24px 24px; }
     .fd__reactions { display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; }
-    .reaction { display: flex; gap: 12px; align-items: flex-start; }
-    .reaction__name { font-weight: 600; margin-right: 8px; }
-    .reaction__txt { color: var(--ink-soft); font-family: var(--font-serif); font-style: italic; font-size: 1.05rem; }
+    .fd__reactions-empty { color: var(--ink-faint); font-family: var(--font-serif); font-style: italic; font-size: 0.95rem; }
     .fd__react-input { display: flex; gap: 8px; }
     .fd__react-input input {
       flex: 1; padding: 12px 16px; border-radius: 999px; border: 0.5px solid var(--paper-line);
@@ -703,44 +713,58 @@
     }
 
     /* ── AddTrip modal ──────────────────────────────────────────────────── */
-    .at { padding: 32px 36px; }
-    .at__head { margin-bottom: 24px; }
-    .at__kicker {
-      font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.14em;
-      text-transform: uppercase; color: var(--accent);
-    }
-    .at__title { font-family: var(--font-serif); font-size: 2.4rem; font-weight: 400; letter-spacing: -0.02em; margin-top: 4px; }
-    .at__sub { color: var(--ink-soft); margin: 6px 0 0; }
-    .at__tabs {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
-      padding: 4px; background: var(--paper-soft); border-radius: 14px;
-      margin-bottom: 24px;
-    }
-    .at__tabs button {
-      appearance: none; border: 0; background: transparent;
-      padding: 12px 14px; border-radius: 10px; text-align: left;
-      display: flex; flex-direction: column; gap: 4px;
-      color: var(--ink-soft); cursor: pointer;
-      transition: background .15s, color .15s;
-    }
-    .at__tabs button.on { background: var(--ink); color: var(--paper); }
-    .at__tabs button:hover:not(.on) { background: var(--paper-deeper); }
-    .at__tab-num { font-family: var(--font-mono); font-size: 0.65rem; letter-spacing: 0.1em; opacity: 0.7; }
-    .at__tab-lbl { font-weight: 500; font-size: 0.9rem; }
+    .at { padding: 26px 32px; }
+    .at__head { margin-bottom: 14px; }
+    .at__title { font-family: var(--font-serif); font-size: 1.5rem; font-weight: 400; letter-spacing: -0.01em; }
 
-    .at__body { display: flex; flex-direction: column; gap: 16px; }
+    /* Upload + paste — visible by default alongside the fields, flight mode only */
+    .at__quickfill {
+      display: flex; flex-direction: column; gap: 8px;
+      padding-bottom: 14px; margin-bottom: 2px; border-bottom: 0.5px solid var(--paper-line);
+    }
+    .at__upload-cta {
+      display: flex; align-items: center; gap: 10px; justify-content: center;
+      width: 100%; padding: 12px 20px; border-radius: 12px; cursor: pointer;
+      border: 1.5px dashed var(--paper-line); background: var(--paper-soft);
+      font-weight: 600; font-size: 0.9rem; color: var(--ink);
+      transition: background .2s, border-color .2s;
+    }
+    .at__upload-cta:hover { background: var(--paper-deeper); border-color: var(--ink-faint); }
+    .at__upload-cta-icon { font-size: 1.1rem; }
+    .at__paste-link {
+      appearance: none; border: 0; background: transparent; padding: 2px;
+      color: var(--ink-soft); text-decoration: underline; text-underline-offset: 3px;
+      font: inherit; font-size: 0.85rem; cursor: pointer; align-self: center;
+    }
+    .at__paste-link:hover { color: var(--ink); }
+
+    /* Journey-mode toggle */
+    .at__mode-toggle { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .at__mode-toggle button {
+      appearance: none; border: 0.5px solid var(--paper-line); background: var(--paper-soft);
+      border-radius: 10px; padding: 8px; display: flex; align-items: center; justify-content: center;
+      gap: 6px; font: inherit; font-size: 0.85rem; color: var(--ink-soft); cursor: pointer;
+      transition: all .15s;
+    }
+    .at__mode-toggle button:hover:not(.on) { background: var(--paper-deeper); }
+    .at__mode-toggle button.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+    .at__paste-btn { align-self: flex-start; }
+    .at__hint { font-size: 0.78rem; color: var(--ink-faint); margin-top: -8px; }
+
+    .at__body { display: flex; flex-direction: column; gap: 12px; }
     .at__row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
-    .at__row:has(> .at__field--narrow) { grid-template-columns: 1fr auto auto; }
+    .at__row:has(> .at__field--narrow) { grid-template-columns: 1fr minmax(0, 100px) minmax(0, 100px); }
     @media (max-width: 600px) {
       .at__row { grid-template-columns: 1fr; }
     }
-    .at__field { display: flex; flex-direction: column; gap: 6px; }
+    .at__field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
     .at__field > span {
       font-family: var(--font-mono); font-size: 0.65rem; letter-spacing: 0.1em;
       text-transform: uppercase; color: var(--ink-faint);
     }
     .at__field--full { grid-column: 1 / -1; }
-    .at__field--narrow input { width: 110px; }
+    .at__field--narrow input { width: 100%; min-width: 0; }
     .at__field input, .at__field select, .at__field textarea {
       width: 100%; padding: 10px 14px; border: 0.5px solid var(--paper-line);
       border-radius: 10px; background: var(--paper-soft);
@@ -775,24 +799,13 @@
     .at__secondary { background: transparent; color: var(--ink-soft); }
     .at__secondary:hover { color: var(--ink); }
 
-    .at__drop {
-      display: block;
-      border: 1.5px dashed var(--paper-line); border-radius: 14px;
-      padding: 48px 24px; text-align: center; cursor: pointer;
-      background: var(--paper-soft); transition: background .2s, border-color .2s;
-    }
-    .at__drop:hover { background: var(--paper-deeper); border-color: var(--ink-faint); }
-    .at__drop-icon { font-size: 2rem; margin-bottom: 10px; }
-    .at__drop-title { font-family: var(--font-serif); font-size: 1.3rem; }
-    .at__drop-sub { color: var(--ink-soft); font-size: 0.85rem; margin-top: 4px; }
-    .at__drop-loading { color: var(--accent); margin-top: 14px; font-family: var(--font-mono); font-size: 0.85rem; }
-
     .at__parsed {
       display: flex; gap: 12px; align-items: flex-start;
       padding: 14px 16px; border-radius: 12px;
       background: color-mix(in oklab, var(--sage) 15%, var(--paper-soft));
       font-size: 0.92rem;
     }
+    .at__parsed--pending { background: var(--paper-soft); color: var(--ink-soft); font-family: var(--font-mono); font-size: 0.85rem; }
     .at__parsed-mark {
       width: 28px; height: 28px; border-radius: 50%;
       background: var(--sage); color: white;
@@ -810,30 +823,58 @@
     /* ── Travelers view ─────────────────────────────────────────────────── */
     .travelers { display: flex; flex-direction: column; gap: 28px; }
     .travelers__grid {
-      display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-      gap: 20px;
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
     }
-    .trav-card {
-      appearance: none; border: 0; cursor: pointer; font: inherit; color: inherit;
-      background: var(--paper-soft); border-radius: var(--radius); padding: 28px 20px;
-      display: flex; flex-direction: column; align-items: center; gap: 8px;
+    @media (max-width: 860px) { .travelers__grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 560px) { .travelers__grid { grid-template-columns: repeat(2, 1fr); } }
+    .trav-card { position: relative; }
+    .trav-card__hit {
+      width: 100%; appearance: none; border: 0; cursor: pointer; font: inherit; color: inherit;
+      background: var(--paper-soft); border-radius: var(--radius); padding: 16px 12px;
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
       text-align: center; box-shadow: var(--shadow-1);
       transition: transform .15s, box-shadow .15s;
       border: 0.5px solid var(--paper-line);
     }
-    .trav-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); }
-    .trav-card__name { font-family: var(--font-serif); font-size: 1.3rem; margin-top: 8px; letter-spacing: -0.01em; }
+    .trav-card__hit:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); }
+    /* Upload control — a plain camera-outline icon with a small upload-arrow
+       badge at its corner, sitting on a light disc rather than a solid block,
+       so it reads as "add a photo here" rather than a decorative sticker. */
+    .trav-card__photo-btn {
+      position: absolute; top: 6px; right: 6px;
+      width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--paper); color: var(--ink-soft);
+      border: 1px solid var(--paper-line); box-shadow: var(--shadow-1);
+      transition: color .15s, border-color .15s;
+    }
+    .trav-card__photo-btn:hover { color: var(--accent); border-color: var(--accent); }
+    .trav-card__photo-btn[data-busy="1"] { pointer-events: none; opacity: 0.6; }
+    .trav-card__photo-spinner { font-size: 0.8rem; }
+    .trav-card__photo-badge {
+      position: absolute; bottom: -2px; right: -2px;
+      width: 14px; height: 14px; border-radius: 50%;
+      background: var(--accent); color: white;
+      display: flex; align-items: center; justify-content: center;
+      border: 1.5px solid var(--paper);
+    }
+    .travelers__error {
+      color: var(--warn); font-size: 0.85rem; background: color-mix(in oklab, var(--warn) 14%, var(--paper-soft));
+      padding: 10px 14px; border-radius: 10px; margin-bottom: -8px;
+    }
+    .trav-card__name { font-family: var(--font-serif); font-size: 1.02rem; margin-top: 4px; letter-spacing: -0.01em; }
     .trav-card__nick { color: var(--accent); font-style: italic; }
-    .trav-card__role { font-size: 0.82rem; color: var(--ink-soft); }
-    .trav-card__home { font-family: var(--font-mono); font-size: 0.72rem; color: var(--ink-faint); margin-top: 6px; }
+    .trav-card__role { font-size: 0.74rem; color: var(--ink-soft); }
+    .trav-card__home { font-family: var(--font-mono); font-size: 0.66rem; color: var(--ink-faint); margin-top: 2px; }
     .trav-card__stats {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
-      width: 100%; margin-top: 14px; padding-top: 14px;
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
+      width: 100%; margin-top: 8px; padding-top: 8px;
       border-top: 0.5px dashed var(--paper-line);
     }
     .trav-card__stats > div { display: flex; flex-direction: column; align-items: center; }
-    .trav-card__stats strong { font-family: var(--font-serif); font-size: 1.4rem; letter-spacing: -0.01em; font-weight: 400; }
-    .trav-card__stats span { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); }
+    .trav-card__stats strong { font-family: var(--font-serif); font-size: 1.05rem; letter-spacing: -0.01em; font-weight: 400; }
+    .trav-card__stats span { font-family: var(--font-mono); font-size: 0.55rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-faint); }
     .trav-card__stats > div[data-air="1"] strong { color: var(--sky); }
 
     /* ── Archive ────────────────────────────────────────────────────────── */
@@ -909,17 +950,11 @@
       background: var(--ink); color: color-mix(in oklab, var(--paper) 85%, transparent);
       padding: 48px 36px 24px; margin-top: 80px;
     }
-    .footer__inner { display: grid; grid-template-columns: 1fr 1.6fr; gap: 36px; max-width: 1200px; }
-    @media (max-width: 800px) { .footer__inner { grid-template-columns: 1fr; } }
+    .footer__inner { max-width: 1200px; }
     .footer__brand { display: flex; gap: 14px; align-items: center; }
     .footer__brand .brand-mark { width: 44px; height: 44px; }
     .footer__title { font-family: var(--font-serif); font-size: 1.4rem; color: var(--paper); }
     .footer__sub { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.08em; opacity: 0.6; }
-    .footer__cols { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
-    @media (max-width: 600px) { .footer__cols { grid-template-columns: 1fr; } }
-    .footer__col-h { font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); margin-bottom: 8px; }
-    .footer ul { padding-left: 18px; margin: 0; }
-    .footer ul li { margin: 4px 0; }
     .footer__copy {
       text-align: center; padding-top: 32px; margin-top: 32px;
       border-top: 0.5px solid rgba(255,255,255,0.08);

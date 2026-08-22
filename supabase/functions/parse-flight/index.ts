@@ -1,11 +1,12 @@
 // supabase/functions/parse-flight/index.ts
 //
-// Accepts an uploaded boarding-pass / e-ticket / confirmation-email image,
-// stores it in the `boarding-passes` bucket, and asks Claude (vision, forced
-// tool-use) to extract structured flight details. Returns the parsed fields
-// for a human to review/edit in the UI, plus the storage path — this
-// function never writes to the `flights` table itself; that only happens
-// after the human confirms, via save-flight.
+// Accepts EITHER an uploaded boarding-pass/e-ticket image OR pasted/typed
+// free-text flight details, and asks Claude (forced tool-use) to extract
+// structured flight fields. An image also gets stored in the
+// `boarding-passes` bucket first; plain text has nothing to store. Returns
+// the parsed fields for a human to review/edit in the UI — this function
+// never writes to the `flights` table itself; that only happens after the
+// human confirms, via save-flight.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -62,9 +63,11 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
 
   try {
-    const { image, mediaType } = await req.json();
-    if (!image || !mediaType) return json({ ok: false, error: "Missing image or mediaType" }, 400);
-    if (!/^image\/(jpeg|png|webp|gif)$/.test(mediaType)) {
+    const { image, mediaType, text } = await req.json();
+    const hasImage = !!image && !!mediaType;
+    const hasText = !!text && !!String(text).trim();
+    if (!hasImage && !hasText) return json({ ok: false, error: "Missing image or text" }, 400);
+    if (hasImage && !/^image\/(jpeg|png|webp|gif)$/.test(mediaType)) {
       return json({ ok: false, error: "Unsupported image type — use JPEG, PNG, WebP, or GIF" }, 400);
     }
 
@@ -72,13 +75,33 @@ Deno.serve(async (req) => {
 
     // Store the raw image first, before calling the AI — if parsing fails
     // downstream, the upload itself isn't lost and can be retried or fixed
-    // by hand without asking the family member to re-upload.
-    const ext = mediaType.split("/")[1];
-    const path = `${crypto.randomUUID()}.${ext}`;
-    const { error: uploadError } = await supabase.storage
-      .from("boarding-passes")
-      .upload(path, base64ToBytes(image), { contentType: mediaType });
-    if (uploadError) return json({ ok: false, error: `Upload failed: ${uploadError.message}` }, 500);
+    // by hand without asking the family member to re-upload. Pasted text has
+    // nothing to store, so this whole step is skipped for that path.
+    let path: string | null = null;
+    if (hasImage) {
+      const ext = mediaType.split("/")[1];
+      path = `${crypto.randomUUID()}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("boarding-passes")
+        .upload(path, base64ToBytes(image), { contentType: mediaType });
+      if (uploadError) return json({ ok: false, error: `Upload failed: ${uploadError.message}` }, 500);
+    }
+
+    const content: unknown[] = [];
+    if (hasImage) content.push({ type: "image", source: { type: "base64", media_type: mediaType, data: image } });
+    content.push({
+      type: "text",
+      text: hasImage
+        ? "This is a photo or screenshot of a boarding pass, e-ticket, or flight booking " +
+          "confirmation. Extract the flight details using the record_flight tool. If a field " +
+          "genuinely isn't visible in the image, use null for it rather than guessing — a " +
+          "family member will review and fill in gaps by hand before this is saved."
+        : "This is pasted or typed text describing a flight — could be a booking confirmation " +
+          "email, an itinerary, or just someone's own shorthand notes. Extract the flight " +
+          "details using the record_flight tool. If a field genuinely isn't mentioned, use null " +
+          "for it rather than guessing — a family member will review and fill in gaps by hand " +
+          "before this is saved.\n\n---\n" + String(text).slice(0, 8000),
+    });
 
     const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -92,22 +115,7 @@ Deno.serve(async (req) => {
         max_tokens: 1024,
         tools: [FLIGHT_TOOL],
         tool_choice: { type: "tool", name: "record_flight" },
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "image", source: { type: "base64", media_type: mediaType, data: image } },
-              {
-                type: "text",
-                text:
-                  "This is a photo or screenshot of a boarding pass, e-ticket, or flight booking " +
-                  "confirmation. Extract the flight details using the record_flight tool. If a field " +
-                  "genuinely isn't visible in the image, use null for it rather than guessing — a " +
-                  "family member will review and fill in gaps by hand before this is saved.",
-              },
-            ],
-          },
-        ],
+        messages: [{ role: "user", content }],
       }),
     });
 

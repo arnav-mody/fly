@@ -322,7 +322,7 @@ function Board({ buckets, now, heroOn, onOpen, onAdd }) {
         <div className="cta__inner">
           <div>
             <h3>Booked a flight?</h3>
-            <p>Drop the details — Dadaji will be tracking before you even get to the airport.</p>
+            <p>Drop the details — the family will be tracking before you even get to the airport.</p>
           </div>
           <button className="cta__btn" onClick={onAdd}>＋ Add a trip</button>
         </div>
@@ -362,6 +362,7 @@ function HeroDeck({ flights, now, onOpen }) {
 // HeroAirborne but smaller — map shrinks, the lines row drops to two stats,
 // and the note moves inside the tile instead of below.
 function HeroAirborneTile({ flight, now, onOpen }) {
+  const isFlight = modeOf(flight) === "flight";
   const from = { ...airport(flight.from), code: flight.from };
   const to   = { ...airport(flight.to),   code: flight.to };
   const travelers = flight.travelers.map(familyById).filter(Boolean);
@@ -372,17 +373,19 @@ function HeroAirborneTile({ flight, now, onOpen }) {
   return (
     <article className="htile" onClick={() => onOpen(flight)}>
       <div className="htile__map">
-        <RouteMap from={from} to={to} progress={flight.progress ?? 0} status="airborne" height={200} />
-        <span className="htile__chip">In the air</span>
+        {isFlight
+          ? <RouteMap from={from} to={to} progress={flight.progress ?? 0} status="airborne" height={200} />
+          : <div className="tcard__mode-block" style={{ height: 200 }}>{modeMeta(flight).icon}</div>}
+        <span className="htile__chip">{isFlight ? "In the air" : "Traveling"}</span>
       </div>
       <div className="htile__body">
         <div className="htile__top">
           <AvatarStack ids={flight.travelers} size={36} />
-          <span className="htile__id">{flight.airline}{flight.number}</span>
+          <span className="htile__id">{isFlight ? <>{flight.airline}{flight.number}</> : modeMeta(flight).icon}</span>
         </div>
         <h2 className="htile__headline">
           <span className="htile__name">{lead}</span>
-          <span className="htile__verb"> is in the sky.</span>
+          <span className="htile__verb">{isFlight ? " is in the sky." : " is on the way."}</span>
         </h2>
         <div className="htile__route">
           {from.city} <span className="htile__arrow">→</span> {to.city}
@@ -411,6 +414,7 @@ function HeroAirborneTile({ flight, now, onOpen }) {
 // board whenever any flight is airborne. This is the single most important
 // moment in the UI for Grandpa.
 function HeroAirborne({ flight, now, onOpen }) {
+  const isFlight = modeOf(flight) === "flight";
   const from = { ...airport(flight.from), code: flight.from };
   const to   = { ...airport(flight.to),   code: flight.to };
   const travelers = flight.travelers.map(familyById).filter(Boolean);
@@ -427,17 +431,19 @@ function HeroAirborne({ flight, now, onOpen }) {
           <span className="hero__live-dot" />
           Right now · {fmtTime(now)} UTC
         </div>
-        <span className="hero__chip">In the air</span>
+        <span className="hero__chip">{isFlight ? "In the air" : "Traveling"}</span>
       </div>
       <div className="hero__layout">
         <div className="hero__left">
           <AvatarStack ids={flight.travelers} size={56} />
           <h1 className="hero__headline">
             <span className="hero__name">{lead}</span>
-            <span className="hero__verb"> is in the sky.</span>
+            <span className="hero__verb">{isFlight ? " is in the sky." : " is on the way."}</span>
           </h1>
           <p className="hero__sub">
-            {flight.airline}{flight.number} · {from.city} → {to.city} · cruising at {flight.cruisingAlt?.toLocaleString()} ft
+            {isFlight
+              ? <>{flight.airline}{flight.number} · {from.city} → {to.city} · cruising at {flight.cruisingAlt?.toLocaleString()} ft</>
+              : <>{modeMeta(flight).icon} {modeMeta(flight).label} · {from.city} → {to.city}</>}
           </p>
           <FlightProgress flight={flight} now={now} />
           <div className="hero__lines">
@@ -449,17 +455,21 @@ function HeroAirborne({ flight, now, onOpen }) {
               <div className="hero__line-lbl">Arriving</div>
               <div className="hero__line-val">{fmtTime(flight.arrive)} {to.tz}</div>
             </div>
-            <div>
-              <div className="hero__line-lbl">Aircraft</div>
-              <div className="hero__line-val">{flight.aircraft}</div>
-            </div>
+            {isFlight && (
+              <div>
+                <div className="hero__line-lbl">Aircraft</div>
+                <div className="hero__line-val">{flight.aircraft}</div>
+              </div>
+            )}
           </div>
           <button className="hero__more" onClick={() => onOpen(flight)}>
             Open flight details →
           </button>
         </div>
         <div className="hero__right">
-          <RouteMap from={from} to={to} progress={flight.progress ?? 0} status="airborne" height={360} />
+          {isFlight
+            ? <RouteMap from={from} to={to} progress={flight.progress ?? 0} status="airborne" height={360} />
+            : <div className="tcard__mode-block" style={{ height: 360 }}>{modeMeta(flight).icon}</div>}
         </div>
       </div>
       {flight.note && (
@@ -523,24 +533,100 @@ function TravelersView({ allFlights, now, onSelectPerson }) {
     return { p, total: flown.length, upcoming, airborne };
   });
 
+  // Photo upload — resize/re-encode client-side (same helper the boarding-pass
+  // upload uses, from modals.jsx), then hand it to the upload-photo Edge
+  // Function, which writes it to the public family-photos bucket at a
+  // deterministic `${personId}.jpg` path. Avatar just looks that path up
+  // directly, so a full reload is the simplest way to make sure every avatar
+  // on the page picks up the new photo (and stops showing a cached 404).
+  const [uploadingFor, setUploadingFor] = React.useState(null);
+  const [photoError, setPhotoError] = React.useState(null);
+
+  const handlePhotoSelect = (personId, e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploadingFor(personId);
+    setPhotoError(null);
+
+    resizeImageForUpload(file).then((blob) => {
+      const reader = new FileReader();
+      reader.onerror = () => { setUploadingFor(null); setPhotoError("Couldn't read that photo — try a different file?"); };
+      reader.onload = () => {
+        const base64 = String(reader.result).split(",")[1];
+        window.supabaseClient.functions.invoke("upload-photo", {
+          body: { personId, image: base64, mediaType: "image/jpeg" },
+        }).then(({ data, error }) => {
+          if (error || !data || !data.ok) {
+            setUploadingFor(null);
+            setPhotoError((data && data.error) || "Couldn't upload that photo — mind trying again?");
+            return;
+          }
+          window.location.reload();
+        }).catch((err) => {
+          setUploadingFor(null);
+          setPhotoError(String((err && err.message) || err));
+        });
+      };
+      reader.readAsDataURL(blob);
+    }).catch((err) => {
+      setUploadingFor(null);
+      setPhotoError(String((err && err.message) || err));
+    });
+  };
+
   return (
     <div className="travelers" data-screen-label="02 Travelers">
-      <SectionHead kicker="The roster" title="Everyone tracked here" sub="Tap a face to see only their flights on the board." />
+      <SectionHead kicker="The roster" title="Everyone tracked here" sub="Tap a face to see only their flights on the board. Tap the upload icon to add or change a photo." />
+      {photoError && <div className="travelers__error">{photoError}</div>}
       <div className="travelers__grid">
         {stats.map(({ p, total, upcoming, airborne }) => (
-          <button key={p.id} className="trav-card" onClick={() => onSelectPerson(p.id)}>
-            <Avatar person={p} size={88} />
-            <div className="trav-card__name">{p.nick ? <><span className="trav-card__nick">{p.nick}</span> · {p.first} {p.last}</> : <>{p.first} {p.last}</>}</div>
-            <div className="trav-card__role">{p.role}</div>
-            <div className="trav-card__home">📍 {p.home}</div>
-            <div className="trav-card__stats">
-              <div><strong>{total}</strong><span>flights</span></div>
-              <div><strong>{upcoming}</strong><span>upcoming</span></div>
-              <div data-air={airborne ? "1" : "0"}>
-                <strong>{airborne ? "✈" : "—"}</strong><span>{airborne ? "in air" : "on ground"}</span>
+          <div key={p.id} className="trav-card">
+            <button className="trav-card__hit" onClick={() => onSelectPerson(p.id)}>
+              <Avatar person={p} size={64} />
+              <div className="trav-card__name">{p.nick ? <><span className="trav-card__nick">{p.nick}</span> · {p.first} {p.last}</> : <>{p.first} {p.last}</>}</div>
+              {p.role && <div className="trav-card__role">{p.role}</div>}
+              {p.home && <div className="trav-card__home">📍 {p.home}</div>}
+              <div className="trav-card__stats">
+                <div><strong>{total}</strong><span>flights</span></div>
+                <div><strong>{upcoming}</strong><span>upcoming</span></div>
+                <div data-air={airborne ? "1" : "0"}>
+                  <strong>{airborne ? "✈" : "—"}</strong><span>{airborne ? "in air" : "on ground"}</span>
+                </div>
               </div>
-            </div>
-          </button>
+            </button>
+            <label
+              className="trav-card__photo-btn"
+              htmlFor={`trav-photo-${p.id}`}
+              onClick={(e) => e.stopPropagation()}
+              title={`Add or change ${p.first}'s photo`}
+              data-busy={uploadingFor === p.id ? "1" : "0"}
+            >
+              <input
+                id={`trav-photo-${p.id}`}
+                type="file"
+                accept="image/*"
+                disabled={uploadingFor === p.id}
+                onChange={(e) => handlePhotoSelect(p.id, e)}
+                style={{ display: "none" }}
+              />
+              {uploadingFor === p.id ? (
+                <span className="trav-card__photo-spinner" aria-hidden="true">…</span>
+              ) : (
+                <>
+                  <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M4 8h3l1.6-2.2h6.8L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z" />
+                    <circle cx="12" cy="13.2" r="3.1" />
+                  </svg>
+                  <span className="trav-card__photo-badge" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 19V6M6 11l6-6 6 6" />
+                    </svg>
+                  </span>
+                </>
+              )}
+            </label>
+          </div>
         ))}
       </div>
     </div>
@@ -567,6 +653,7 @@ function ArchiveView({ flights, now, onOpen }) {
             <span className="arch-group__count">{items.length} trip{items.length === 1 ? "" : "s"}</span>
           </div>
           {items.map((f) => {
+            const mode = modeOf(f);
             const al = airline(f.airline);
             const from = airport(f.from), to = airport(f.to);
             const travelers = f.travelers.map(familyById).filter(Boolean);
@@ -580,7 +667,9 @@ function ArchiveView({ flights, now, onOpen }) {
                   <span className="arch-row__code">{f.to}</span>
                 </div>
                 <div className="arch-row__cities">{from.city} → {to.city}</div>
-                <div className="arch-row__flight"><span style={{ color: al.color }}>{f.airline}</span>{f.number}</div>
+                {mode === "flight"
+                  ? <div className="arch-row__flight"><span style={{ color: al.color }}>{f.airline}</span>{f.number}</div>
+                  : <div className="arch-row__flight">{modeMeta(f).icon} {modeMeta(f).label}</div>}
                 <div className="arch-row__note">{f.note || ""}</div>
               </button>
             );
@@ -601,21 +690,7 @@ function Footer() {
           <BrandMark />
           <div>
             <div className="footer__title">Mody-Gandhi Travel Tracker</div>
-            <div className="footer__sub">Built for Dadaji · with love from the family</div>
-          </div>
-        </div>
-        <div className="footer__cols">
-          <div>
-            <div className="footer__col-h">Status updates</div>
-            <p>Positions here are simulated for now — soon this'll pull real gate-to-gate updates from FlightAware, so the board stays true the moment wheels leave the ground.</p>
-          </div>
-          <div>
-            <div className="footer__col-h">Coming soon</div>
-            <ul>
-              <li>SMS to Grandpa when anyone takes off / lands</li>
-              <li>Trip photo galleries after the flight</li>
-              <li>Auto-import from Gmail confirmations</li>
-            </ul>
+            <div className="footer__sub">Built with love, for the family</div>
           </div>
         </div>
       </div>
@@ -647,6 +722,7 @@ function isHexDark(h) {
 function mapDbFlight(row) {
   return {
     id: row.id,
+    mode: row.mode || "flight",
     airline: row.airline_code,
     number: row.flight_number,
     from: row.from_airport,

@@ -14,6 +14,7 @@ function tallyLine(air, away, home, soon) {
 
 // ── NowRow — one traveling group, one line ──────────────────────────────────
 function NowRow({ trip, status, now, open, onToggle, onOpenFlight }) {
+  const legIsFlight = modeOf(status === "returning" ? trip.returnFlight : trip.outboundFlight) === "flight";
   const travelers = trip.travelers.map(familyById).filter(Boolean);
   const names = travelers.map((p) => p.nick || p.first).join(" & ");
   const air = status === "outbound" || status === "returning";
@@ -58,24 +59,26 @@ function NowRow({ trip, status, now, open, onToggle, onOpenFlight }) {
       {open && (
         <div className="nowrow__detail">
           <div className="nowrow__map">
-            <RouteMap
-              from={{ ...airport(leg.from), code: leg.from }}
-              to={{ ...airport(leg.to), code: leg.to }}
-              progress={air ? (leg.progress ?? pct / 100) : 0}
-              status={air ? "airborne" : "landed"}
-              height={130}
-            />
+            {legIsFlight
+              ? <RouteMap
+                  from={{ ...airport(leg.from), code: leg.from }}
+                  to={{ ...airport(leg.to), code: leg.to }}
+                  progress={air ? (leg.progress ?? pct / 100) : 0}
+                  status={air ? "airborne" : "landed"}
+                  height={130}
+                />
+              : <div className="tcard__mode-block" style={{ height: 130 }}>{modeMeta(leg).icon}</div>}
           </div>
           <div className="nowrow__legs">
             <button className="nowrow__leg" onClick={() => onOpenFlight(trip.outboundFlight)}>
               <span>Outbound</span>
-              <strong>{trip.outboundFlight.airline}{trip.outboundFlight.number}</strong>
+              <strong>{modeOf(trip.outboundFlight) === "flight" ? <>{trip.outboundFlight.airline}{trip.outboundFlight.number}</> : modeMeta(trip.outboundFlight).icon}</strong>
               <span>{fmtDateShort(trip.outboundFlight.depart)}</span>
             </button>
             {trip.returnFlight ? (
               <button className="nowrow__leg" onClick={() => onOpenFlight(trip.returnFlight)}>
                 <span>Return</span>
-                <strong>{trip.returnFlight.airline}{trip.returnFlight.number}</strong>
+                <strong>{modeOf(trip.returnFlight) === "flight" ? <>{trip.returnFlight.airline}{trip.returnFlight.number}</> : modeMeta(trip.returnFlight).icon}</strong>
                 <span>{fmtDateShort(trip.returnFlight.depart)}</span>
               </button>
             ) : (
@@ -83,13 +86,15 @@ function NowRow({ trip, status, now, open, onToggle, onOpenFlight }) {
             )}
           </div>
           {trip.outboundFlight.note && <div className="nowrow__note">"{trip.outboundFlight.note}"</div>}
-          <a
-            className="fa-link nowrow__fa"
-            href={flightAwareUrl(leg)}
-            target="_blank" rel="noopener noreferrer"
-          >
-            Track on FlightAware <span className="fa-link__arrow">↗</span>
-          </a>
+          {legIsFlight && (
+            <a
+              className="fa-link nowrow__fa"
+              href={flightAwareUrl(leg)}
+              target="_blank" rel="noopener noreferrer"
+            >
+              Track on FlightAware <span className="fa-link__arrow">↗</span>
+            </a>
+          )}
         </div>
       )}
     </li>
@@ -156,9 +161,7 @@ function NowView({ allFlights, now, onOpenFlight, filterIds = [], onSeeAll }) {
         {atHome.length > 0 && (
           <div className="now__home">
             <AvatarStack ids={atHome.map((p) => p.id)} size={26} />
-            <span className="now__home-txt">
-              {atHome.map((p) => p.nick || p.first).join(", ")} {atHome.length === 1 ? "is" : "are"} home
-            </span>
+            <span className="now__home-txt">{atHome.length === 1 ? "is" : "are"} home</span>
           </div>
         )}
         {nextTwo.length > 0 && (

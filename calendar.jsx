@@ -194,7 +194,7 @@ function TravelLine({ event, onOpen }) {
 
   return (
     <button className="dline dline--travel" onClick={() => onOpen(event.flight)}>
-      <span className="dline__icon" aria-hidden="true">✈</span>
+      <span className="dline__icon" aria-hidden="true">{window.MGData.modeMeta(event.flight).icon}</span>
       <span className="dline__text">
         <span className="dline__name">{names}</span>
         <span className="dline__verb"> {travelers.length === 1 ? "flies" : "fly"} to </span>

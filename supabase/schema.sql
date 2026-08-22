@@ -126,19 +126,48 @@ insert into airlines (code, name, color) values
   ('AF','Air France','#002157')
 on conflict (code) do nothing;
 
-insert into family_members (id, first_name, last_name, nickname, role, home_city, home_airport, tone) values
-  ('bharat','Bharat','Mody','Dadaji','Patriarch · The Tracker','Phoenix, AZ','PHX',1),
-  ('asha','Asha','Mody','Dadiji','Matriarch','Phoenix, AZ','PHX',2),
-  ('priya','Priya','Mody-Gandhi',null,'Daughter · Architect','San Francisco','SFO',3),
-  ('raj','Raj','Gandhi',null,'Son-in-law · Cardiologist','San Francisco','SFO',4),
-  ('aarav','Aarav','Mody-Gandhi',null,'Grandson · NYU ''26','New York','JFK',5),
-  ('diya','Diya','Mody-Gandhi',null,'Granddaughter · senior in HS','San Francisco','SFO',6),
-  ('meera','Meera','Iyer',null,'Daughter · Pediatrician','Seattle, WA','SEA',7),
-  ('vikram','Vikram','Iyer',null,'Son-in-law · Designer','Seattle, WA','SEA',8),
-  ('kavya','Kavya','Iyer',null,'Granddaughter · 16','Seattle, WA','SEA',9),
-  ('arjun','Arjun','Iyer',null,'Grandson · 14','Seattle, WA','SEA',10)
+-- Nickname/role/home_city/home_airport are left unset (nullable) — none of
+-- that is known yet for the real roster. Update these rows by hand (or via
+-- a follow-up UPDATE) once real home cities/airports are known; the
+-- Calendar view's "away from home" detection depends on home_airport.
+insert into family_members (id, first_name, last_name, tone) values
+  ('arnav','Arnav','Mody',1),
+  ('esha','Esha','Mody',2),
+  ('roopal','Roopal','Mody',3),
+  ('nihar','Nihar','Mody',4),
+  ('ashok','Ashok','Mody',5),
+  ('rohan','Rohan','Gandhi',6),
+  ('avani','Avani','Gandhi',7),
+  ('sanjay','Sanjay','Gandhi',8),
+  ('charu','Charu','Gandhi',9),
+  ('navin','Navin','Gandhi',10),
+  ('ramila','Ramila','Gandhi',11)
 on conflict (id) do nothing;
 
 -- Note: FLIGHTS is intentionally NOT seeded — those were fictional demo data
 -- pinned to a fake "NOW" for the prototype. Real flights start empty and get
 -- added by the family from here on.
+
+-- ── Loosen reference-table constraints ───────────────────────────────────────
+-- Letting people free-type an airline/airport we don't already have means
+-- save-flight needs somewhere to land it: it upserts a bare-bones stub row
+-- (code only, nothing else) the first time a new code is used. These
+-- descriptive columns can no longer be NOT NULL as a result — they just stay
+-- blank until someone fills them in by hand later.
+alter table airlines alter column name  drop not null;
+alter table airlines alter column color drop not null;
+alter table airports alter column city    drop not null;
+alter table airports alter column country drop not null;
+alter table airports alter column name    drop not null;
+
+-- ── Journey modes (flight / train / car) ─────────────────────────────────────
+-- Train and car journeys aren't flights: no airline, no flight number, no
+-- IATA code. They reuse from_airport/to_airport as a general "place"
+-- reference — free-text city name instead of a code — via the same stub-row
+-- mechanism above, and simply leave the flight-only columns null.
+alter table flights add column if not exists mode text not null default 'flight';
+do $$ begin
+  alter table flights add constraint flights_mode_check check (mode in ('flight','train','car'));
+exception when duplicate_object then null; -- safe to re-run
+end $$;
+alter table flights alter column flight_number drop not null;

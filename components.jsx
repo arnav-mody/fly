@@ -28,39 +28,46 @@ function fmtDuration(ms) {
 }
 
 // ── useNow ──────────────────────────────────────────────────────────────────
-// A "live" now that ticks once a second. We anchor it to MGData.NOW (so the
-// prototype is deterministic) plus the wall-clock delta since mount, so
-// countdowns visibly count down without the prototype's data drifting.
+// A "live" now that ticks once a second, tracking real wall-clock time — used
+// to judge every real flight's status/countdown against today, not a fixed
+// prototype date.
 function useNow() {
-  const startRef = React.useRef(performance.now());
-  const [tick, setTick] = React.useState(0);
+  const [now, setNow] = React.useState(() => new Date());
   React.useEffect(() => {
-    const id = setInterval(() => setTick((n) => n + 1), 1000);
+    const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
-  return new Date(NOW.getTime() + (performance.now() - startRef.current));
+  return now;
 }
 
 // ── Avatar ──────────────────────────────────────────────────────────────────
-// Monogram + per-person hue. We deliberately don't use stock photos — this is
-// a family wall, so a beautifully typeset initial is enough placeholder until
-// the user uploads real photos.
+// Real photo when one's been uploaded (see TravelersView's upload control,
+// which stores it at a deterministic `${person.id}.jpg` path in the public
+// `family-photos` bucket — no explicit URL to manage, we just try it and
+// fall back to a monogram + per-person hue if nothing's there yet).
+// `person.photo` is an escape hatch to point at some other hosted URL instead.
 function Avatar({ person, size = 40, ring = false }) {
+  const [photoFailed, setPhotoFailed] = React.useState(false);
   if (!person) return null;
   const initials = (person.first[0] + person.last[0]).toUpperCase();
-  // Per-person hue derived from `tone` index (1..10) — rotates through a warm
-  // palette so siblings get distinct but harmonious colors.
   const hue = (35 + (person.tone - 1) * 31) % 360;
   const bg  = `oklch(78% 0.06 ${hue})`;
   const fg  = `oklch(28% 0.07 ${hue})`;
+  const photoUrl = person.photo || (window.supabaseClient
+    ? window.supabaseClient.storage.from("family-photos").getPublicUrl(`${person.id}.jpg`).data.publicUrl
+    : null);
+  const showPhoto = photoUrl && !photoFailed;
   return (
     <div className="avatar" data-ring={ring ? "1" : "0"}
          style={{
-           width: size, height: size, background: bg, color: fg,
+           width: size, height: size,
+           background: showPhoto ? undefined : bg, color: fg,
            fontSize: size * 0.4,
          }}
          title={person.first + " " + person.last}>
-      <span>{initials}</span>
+      {showPhoto
+        ? <img src={photoUrl} alt="" width={size} height={size} onError={() => setPhotoFailed(true)} />
+        : <span>{initials}</span>}
     </div>
   );
 }
@@ -78,12 +85,12 @@ function AvatarStack({ ids, size = 32 }) {
 }
 
 // ── StatusPill ──────────────────────────────────────────────────────────────
-function StatusPill({ status }) {
+function StatusPill({ status, mode = "flight" }) {
   const labels = {
-    airborne:  { txt: "In the air",       cls: "pill--air" },
+    airborne:  { txt: mode === "flight" ? "In the air" : "Traveling", cls: "pill--air" },
     boarding:  { txt: "Taking off soon",  cls: "pill--soon" },
     scheduled: { txt: "Upcoming",         cls: "pill--up" },
-    landed:    { txt: "Landed",           cls: "pill--landed" },
+    landed:    { txt: mode === "flight" ? "Landed" : "Arrived", cls: "pill--landed" },
     past:      { txt: "Past trip",        cls: "pill--past" },
   };
   const l = labels[status] ?? labels.scheduled;
@@ -178,6 +185,7 @@ function FlightProgress({ flight, now }) {
 // The technical-detail row that appears on flight cards — flight #, time,
 // gate, seat — set in monospace so it reads like a real boarding pass.
 function BoardingPassStrip({ flight, dense = false }) {
+  const mode = modeOf(flight);
   const al = airline(flight.airline);
   const from = airport(flight.from);
   const to   = airport(flight.to);
@@ -185,10 +193,11 @@ function BoardingPassStrip({ flight, dense = false }) {
   return (
     <div className={`bp-strip ${dense ? "bp-strip--dense" : ""}`}>
       <div className="bp-strip__col">
-        <div className="bp-strip__lbl">Flight</div>
+        <div className="bp-strip__lbl">{mode === "flight" ? "Flight" : modeMeta(flight).label}</div>
         <div className="bp-strip__val">
-          <span className="bp-airline" style={{ ["--ac"]: al.color }}>{flight.airline}</span>
-          {flight.number}
+          {mode === "flight"
+            ? <><span className="bp-airline" style={{ ["--ac"]: al.color }}>{flight.airline}</span>{flight.number}</>
+            : <span aria-hidden="true">{modeMeta(flight).icon}</span>}
         </div>
       </div>
       <div className="bp-strip__col">
@@ -218,6 +227,8 @@ function BoardingPassStrip({ flight, dense = false }) {
 // rails. Click → opens the flight detail modal.
 function FlightCard({ flight, onOpen, now, accent }) {
   const status = flightStatus(flight, now);
+  const mode = modeOf(flight);
+  const isFlight = mode === "flight";
   const from = { ...airport(flight.from), code: flight.from };
   const to   = { ...airport(flight.to),   code: flight.to };
   const travelers = flight.travelers.map(familyById).filter(Boolean);
@@ -238,7 +249,7 @@ function FlightCard({ flight, onOpen, now, accent }) {
     lead = (
       <>
         <span className="card__lead-name">{travelers[0]?.first}</span>
-        <span className="card__lead-verb"> is in the air</span>
+        <span className="card__lead-verb">{isFlight ? " is in the air" : " is traveling"}</span>
       </>
     );
   } else if (status === "landed") {
@@ -246,7 +257,7 @@ function FlightCard({ flight, onOpen, now, accent }) {
     lead = (
       <>
         <span className="card__lead-name">{travelers[0]?.first}</span>
-        <span className="card__lead-verb"> landed </span>
+        <span className="card__lead-verb">{isFlight ? " landed " : " arrived "}</span>
         <span className="card__lead-time">{fmtDuration(diff)} ago</span>
       </>
     );
@@ -267,21 +278,25 @@ function FlightCard({ flight, onOpen, now, accent }) {
     <article className={`card card--${status}`} onClick={() => onOpen(flight)} data-comment-anchor={`card-${flight.id}`}>
       <div className="card__top">
         <AvatarStack ids={flight.travelers} size={32} />
-        <StatusPill status={status} />
+        <StatusPill status={status} mode={mode} />
       </div>
       <div className="card__lead">{lead}</div>
       <div className="card__cities">
         <span className="card__city">
-          <span className="card__city-code">{flight.from}</span>
+          <span className="card__city-code">{isFlight ? flight.from : ""}</span>
           <span className="card__city-name">{from.city}</span>
         </span>
-        <RouteRibbon
-          from={from} to={to}
-          progress={flight.progress ?? 0}
-          status={status}
-        />
+        {isFlight ? (
+          <RouteRibbon
+            from={from} to={to}
+            progress={flight.progress ?? 0}
+            status={status}
+          />
+        ) : (
+          <span className="mode-connector" aria-hidden="true">{modeMeta(flight).icon}</span>
+        )}
         <span className="card__city">
-          <span className="card__city-code">{flight.to}</span>
+          <span className="card__city-code">{isFlight ? flight.to : ""}</span>
           <span className="card__city-name">{to.city}</span>
         </span>
       </div>
@@ -289,14 +304,16 @@ function FlightCard({ flight, onOpen, now, accent }) {
       {flight.note && travelers.length === 1 && (
         <div className="card__note">"{flight.note.length > 80 ? flight.note.slice(0, 80) + "…" : flight.note}"</div>
       )}
-      <a
-        className="fa-link card__fa"
-        href={flightAwareUrl(flight)}
-        target="_blank" rel="noopener noreferrer"
-        onClick={(e) => e.stopPropagation()}
-      >
-        Track on FlightAware <span className="fa-link__arrow">↗</span>
-      </a>
+      {isFlight && (
+        <a
+          className="fa-link card__fa"
+          href={flightAwareUrl(flight)}
+          target="_blank" rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+        >
+          Track on FlightAware <span className="fa-link__arrow">↗</span>
+        </a>
+      )}
     </article>
   );
 }

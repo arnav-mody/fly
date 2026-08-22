@@ -66,6 +66,8 @@ function TripCard({ trip, status, now, onOpen, compact = false }) {
   const toCity = trip.destinationCity;
 
   const legForMap = status === "returning" && trip.returnFlight ? trip.returnFlight : trip.outboundFlight;
+  const legMode = modeOf(legForMap);
+  const isFlight = legMode === "flight";
   const mapFrom = { ...airport(legForMap.from), code: legForMap.from };
   const mapTo   = { ...airport(legForMap.to),   code: legForMap.to };
   const mapStatus = status === "outbound" || status === "returning" ? "airborne"
@@ -99,7 +101,9 @@ function TripCard({ trip, status, now, onOpen, compact = false }) {
   return (
     <article className={`tcard ${compact ? "tcard--compact" : ""}`} data-status={status} data-comment-anchor={`trip-${trip.id}`}>
       <div className="tcard__map">
-        <RouteMap from={mapFrom} to={mapTo} progress={legForMap.progress ?? 0} status={mapStatus} height={compact ? 120 : 160} />
+        {isFlight
+          ? <RouteMap from={mapFrom} to={mapTo} progress={legForMap.progress ?? 0} status={mapStatus} height={compact ? 120 : 160} />
+          : <div className="tcard__mode-block" style={{ height: compact ? 120 : 160 }}>{modeMeta(legForMap).icon}</div>}
       </div>
       <div className="tcard__body">
         <div className="tcard__top">
@@ -108,33 +112,43 @@ function TripCard({ trip, status, now, onOpen, compact = false }) {
         </div>
         <h3 className="tcard__headline">{headline}</h3>
         <div className="tcard__meta">
-          <span>{toCity}, {airport(trip.destination)?.country}</span>
+          <span>{toCity}{airport(trip.destination)?.country ? `, ${airport(trip.destination).country}` : ""}</span>
           <span className="tcard__sub">{subline}</span>
         </div>
         {note && !compact && <div className="tcard__note">"{note.length > 100 ? note.slice(0, 100) + "…" : note}"</div>}
         <div className="tcard__flights">
           <button className="tcard__flightrow" onClick={() => onOpen(trip.outboundFlight)}>
             <span className="tcard__flightrow-lbl">Outbound</span>
-            <span className="tcard__flightrow-flight"><span style={{ color: airline(trip.outboundFlight.airline).color }}>{trip.outboundFlight.airline}</span>{trip.outboundFlight.number}</span>
+            <span className="tcard__flightrow-flight">
+              {modeOf(trip.outboundFlight) === "flight"
+                ? <><span style={{ color: airline(trip.outboundFlight.airline).color }}>{trip.outboundFlight.airline}</span>{trip.outboundFlight.number}</>
+                : modeMeta(trip.outboundFlight).icon}
+            </span>
             <span className="tcard__flightrow-date">{fmtDateShort(trip.outboundFlight.depart)} · {fmtTime(trip.outboundFlight.depart)}</span>
           </button>
           {trip.returnFlight ? (
             <button className="tcard__flightrow" onClick={() => onOpen(trip.returnFlight)}>
               <span className="tcard__flightrow-lbl">Return</span>
-              <span className="tcard__flightrow-flight"><span style={{ color: airline(trip.returnFlight.airline).color }}>{trip.returnFlight.airline}</span>{trip.returnFlight.number}</span>
+              <span className="tcard__flightrow-flight">
+                {modeOf(trip.returnFlight) === "flight"
+                  ? <><span style={{ color: airline(trip.returnFlight.airline).color }}>{trip.returnFlight.airline}</span>{trip.returnFlight.number}</>
+                  : modeMeta(trip.returnFlight).icon}
+              </span>
               <span className="tcard__flightrow-date">{fmtDateShort(trip.returnFlight.depart)} · {fmtTime(trip.returnFlight.depart)}</span>
             </button>
           ) : (
             <div className="tcard__flightrow tcard__flightrow--empty">No return booked yet — the trip's still wide open</div>
           )}
         </div>
-        <a
-          className="fa-link tcard__fa"
-          href={flightAwareUrl(legForMap)}
-          target="_blank" rel="noopener noreferrer"
-        >
-          Track on FlightAware <span className="fa-link__arrow">↗</span>
-        </a>
+        {isFlight && (
+          <a
+            className="fa-link tcard__fa"
+            href={flightAwareUrl(legForMap)}
+            target="_blank" rel="noopener noreferrer"
+          >
+            Track on FlightAware <span className="fa-link__arrow">↗</span>
+          </a>
+        )}
       </div>
     </article>
   );

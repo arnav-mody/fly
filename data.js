@@ -1,27 +1,33 @@
-// Mody-Gandhi Travel Tracker — mock data
-// Family roster + flights spanning every visual state we need to demonstrate:
-// airborne, taking-off-imminent, taking-off-soon, upcoming, just-landed, past.
+// Mody-Gandhi Travel Tracker — data
+// Family roster is real; flights start empty and accumulate from real
+// uploads. (Demo flight data used to live here for prototyping — removed
+// now that the roster is real, since it referenced family-member IDs that
+// no longer exist.)
 
-// Time anchor — we hard-pin "now" so the prototype always shows the same
-// curated set of flight states regardless of when it's viewed. The real app
-// would use Date.now() everywhere this is used.
-const NOW = new Date("2026-05-16T18:30:00Z");
+// Time anchor kept around for the `t()`/hours()/days() helpers below, which
+// are still handy for one-off date math — but useNow() (components.jsx) uses
+// real wall-clock time, not this.
+const NOW = new Date();
 
 // Family members. The `tone` controls each person's monogram color so the
-// directory + avatars feel distinct without leaning on stock photos. The
-// `homeAirport` IATA code is what the Calendar view uses to decide when a
-// person is "away from home" vs "at home".
+// directory + avatars feel distinct without leaning on stock photos.
+// `home`/`homeAirport` are deliberately unset — they're not known yet, and
+// the Calendar view's "away from home" detection just quietly no-ops until
+// they're filled in with real values (see familyById in this file for how
+// a missing homeAirport degrades, not crashes). `photo` is an optional URL;
+// Avatar falls back to the monogram when it's not set.
 const FAMILY = [
-  { id: "bharat", first: "Bharat", last: "Mody",        nick: "Dadaji",  role: "Patriarch · The Tracker",        home: "Phoenix, AZ",     homeAirport: "PHX", tone: 1 },
-  { id: "asha",   first: "Asha",   last: "Mody",        nick: "Dadiji",  role: "Matriarch",                       home: "Phoenix, AZ",     homeAirport: "PHX", tone: 2 },
-  { id: "priya",  first: "Priya",  last: "Mody-Gandhi", nick: "",        role: "Daughter · Architect",            home: "San Francisco",   homeAirport: "SFO", tone: 3 },
-  { id: "raj",    first: "Raj",    last: "Gandhi",      nick: "",        role: "Son-in-law · Cardiologist",       home: "San Francisco",   homeAirport: "SFO", tone: 4 },
-  { id: "aarav",  first: "Aarav",  last: "Mody-Gandhi", nick: "",        role: "Grandson · NYU '26",              home: "New York",        homeAirport: "JFK", tone: 5 },
-  { id: "diya",   first: "Diya",   last: "Mody-Gandhi", nick: "",        role: "Granddaughter · senior in HS",    home: "San Francisco",   homeAirport: "SFO", tone: 6 },
-  { id: "meera",  first: "Meera",  last: "Iyer",        nick: "",        role: "Daughter · Pediatrician",         home: "Seattle, WA",     homeAirport: "SEA", tone: 7 },
-  { id: "vikram", first: "Vikram", last: "Iyer",        nick: "",        role: "Son-in-law · Designer",           home: "Seattle, WA",     homeAirport: "SEA", tone: 8 },
-  { id: "kavya",  first: "Kavya",  last: "Iyer",        nick: "",        role: "Granddaughter · 16",              home: "Seattle, WA",     homeAirport: "SEA", tone: 9 },
-  { id: "arjun",  first: "Arjun",  last: "Iyer",        nick: "",        role: "Grandson · 14",                   home: "Seattle, WA",     homeAirport: "SEA", tone: 10 },
+  { id: "arnav",  first: "Arnav",  last: "Mody",   home: null, homeAirport: null, photo: null, tone: 1 },
+  { id: "esha",   first: "Esha",   last: "Mody",   home: null, homeAirport: null, photo: null, tone: 2 },
+  { id: "roopal", first: "Roopal", last: "Mody",   home: null, homeAirport: null, photo: null, tone: 3 },
+  { id: "nihar",  first: "Nihar",  last: "Mody",   home: null, homeAirport: null, photo: null, tone: 4 },
+  { id: "ashok",  first: "Ashok",  last: "Mody",   home: null, homeAirport: null, photo: null, tone: 5 },
+  { id: "rohan",  first: "Rohan",  last: "Gandhi", home: null, homeAirport: null, photo: null, tone: 6 },
+  { id: "avani",  first: "Avani",  last: "Gandhi", home: null, homeAirport: null, photo: null, tone: 7 },
+  { id: "sanjay", first: "Sanjay", last: "Gandhi", home: null, homeAirport: null, photo: null, tone: 8 },
+  { id: "charu",  first: "Charu",  last: "Gandhi", home: null, homeAirport: null, photo: null, tone: 9 },
+  { id: "navin",  first: "Navin",  last: "Gandhi", home: null, homeAirport: null, photo: null, tone: 10 },
+  { id: "ramila", first: "Ramila", last: "Gandhi", home: null, homeAirport: null, photo: null, tone: 11 },
 ];
 
 // Airport lookup with rough lat/lon for the route map.
@@ -63,154 +69,14 @@ const hours   = (h) => h * 60 * 60 * 1000;
 const days    = (d) => d * 24 * 60 * 60 * 1000;
 const t = (offset) => new Date(NOW.getTime() + offset);
 
-// Flights. Each carries depart/arrive Date objects; the status is derived from
-// NOW at render time, but we tag a "feature" to control where it appears on the
-// board (the hero only ever shows one airborne flight at a time).
-const FLIGHTS = [
-  // ─── AIRBORNE — the hero ──────────────────────────────────────────────────
-  {
-    id: "F-AI102-0516",
-    airline: "AI", number: "102",
-    from: "JFK", to: "DEL",
-    depart: t(-hours(4) - minutes(23)),
-    arrive: t(hours(8) + minutes(12)),
-    travelers: ["aarav"],
-    aircraft: "Boeing 777-300ER",
-    seat: "34A",
-    gate: "A6",
-    terminal: "4",
-    confirmation: "K7N2QP",
-    note: "Heading home for summer! Dadaji — I packed the kachoris you wanted from Mr. Patel's 😊",
-    cruisingAlt: 38000,
-    speed: 561, // knots
-    progress: 0.34, // 0..1 along route — would come from FlightAware
-    pinned: true,
-  },
+// Flights — real ones come from Supabase (see app.jsx's dbFlights/mapDbFlight)
+// and get merged in alongside this array. Starts empty; nothing fictional
+// pinned to old demo names anymore.
+const FLIGHTS = [];
 
-  // ─── TAKING OFF SOON (next 24h) ───────────────────────────────────────────
-  {
-    id: "F-UA905-0517",
-    airline: "UA", number: "905",
-    from: "SFO", to: "LHR",
-    depart: t(hours(6) + minutes(40)),
-    arrive: t(hours(17) + minutes(15)),
-    travelers: ["priya", "raj"],
-    aircraft: "Boeing 787-9",
-    seat: "12A, 12B",
-    gate: "G98",
-    terminal: "I",
-    confirmation: "M3J8XR",
-    note: "Anniversary trip to London! Dinner reservation at Dishoom on Saturday.",
-  },
-  {
-    id: "F-AS312-0516",
-    airline: "AS", number: "312",
-    from: "SEA", to: "PHX",
-    depart: t(-hours(1) - minutes(10)),
-    arrive: t(hours(1) + minutes(38)),
-    travelers: ["meera"],
-    aircraft: "Boeing 737 MAX 9",
-    seat: "8C",
-    gate: "C12",
-    confirmation: "PR4K2L",
-    note: "Coming to see Mom & Dad for the weekend!",
-    cruisingAlt: 36000,
-    speed: 461,
-    progress: 0.40,
-  },
-
-  // ─── UPCOMING THIS WEEK ───────────────────────────────────────────────────
-  {
-    id: "F-BA286-0519",
-    airline: "BA", number: "286",
-    from: "SFO", to: "LHR",
-    depart: t(days(3) + hours(2)),
-    arrive: t(days(3) + hours(13)),
-    travelers: ["vikram", "kavya"],
-    aircraft: "Boeing 777-200ER",
-    seat: "24E, 24F",
-    confirmation: "B9N7TM",
-    note: "Father-daughter trip — Kavya's first time in Europe!",
-  },
-  {
-    id: "F-DL1245-0520",
-    airline: "DL", number: "1245",
-    from: "ATL", to: "LAX",
-    depart: t(days(4) + hours(3)),
-    arrive: t(days(4) + hours(8) + minutes(15)),
-    travelers: ["diya"],
-    aircraft: "Airbus A330-300",
-    seat: "16D",
-    confirmation: "DLT5XA",
-    note: "Stanford admit weekend!",
-    layovers: [{ at: "ATL", duration: "1h 30m" }],
-  },
-  {
-    id: "F-AA1491-0510",
-    airline: "AA", number: "1491",
-    from: "PHX", to: "ORD",
-    depart: t(-days(6) - hours(3)),
-    arrive: t(-days(6)),
-    travelers: ["bharat", "asha"],
-    aircraft: "Boeing 737-800",
-    seat: "5A, 5B",
-    confirmation: "AAQ7Z2",
-    note: "Off to Chicago for cousin Pradeep's wedding!",
-  },
-  {
-    id: "F-AA1492-0522",
-    airline: "AA", number: "1492",
-    from: "ORD", to: "PHX",
-    depart: t(days(6) + hours(5)),
-    arrive: t(days(6) + hours(8) + minutes(20)),
-    travelers: ["bharat", "asha"],
-    aircraft: "Boeing 737-800",
-    seat: "5A, 5B",
-    confirmation: "AAQ8X1",
-    note: "Returning from cousin Pradeep's wedding.",
-  },
-
-  // ─── JUST LANDED (today) ──────────────────────────────────────────────────
-  {
-    id: "F-WN4521-0516",
-    airline: "WN", number: "4521",
-    from: "PHX", to: "AUS",
-    depart: t(-hours(5) - minutes(20)),
-    arrive: t(-minutes(28)),
-    travelers: ["arjun"],
-    aircraft: "Boeing 737-700",
-    seat: "14B",
-    confirmation: "WN7P2Q",
-    note: "Soccer tournament in Austin this weekend.",
-    landed: true,
-  },
-
-  // ─── UPCOMING (later) ─────────────────────────────────────────────────────
-  {
-    id: "F-EK202-0608",
-    airline: "EK", number: "202",
-    from: "DXB", to: "JFK",
-    depart: t(days(23) + hours(6)),
-    arrive: t(days(23) + hours(20) + minutes(30)),
-    travelers: ["aarav"],
-    aircraft: "Airbus A380-800",
-    seat: "62K",
-    confirmation: "EK4MN9",
-    note: "Heading back to NYU via Dubai — the long way.",
-    layovers: [{ at: "DXB", duration: "3h 15m" }],
-  },
-
-  // ─── PAST TRIPS (archive) ─────────────────────────────────────────────────
-  { id: "F-P01", airline: "AI", number: "144", from: "BOM", to: "JFK", depart: t(-days(48)), arrive: t(-days(48) + hours(15)),  travelers: ["aarav"], past: true, note: "Spring break in India." },
-  { id: "F-P02", airline: "DL", number: "60",  from: "JFK", to: "CDG", depart: t(-days(86)), arrive: t(-days(86) + hours(7)),   travelers: ["priya", "raj"], past: true, note: "Paris for our anniversary." },
-  { id: "F-P03", airline: "UA", number: "237", from: "SFO", to: "NRT", depart: t(-days(132)), arrive: t(-days(132) + hours(11)), travelers: ["vikram"], past: true, note: "Design conference in Tokyo." },
-  { id: "F-P04", airline: "AS", number: "688", from: "SEA", to: "PHX", depart: t(-days(174)), arrive: t(-days(174) + hours(3)),  travelers: ["meera", "kavya", "arjun"], past: true, note: "Thanksgiving with Dadaji & Dadiji." },
-  { id: "F-P05", airline: "BA", number: "287", from: "LHR", to: "SFO", depart: t(-days(201)), arrive: t(-days(201) + hours(11)), travelers: ["priya", "raj", "diya"], past: true, note: "Family wedding in London." },
-];
-
-// Status derivation. `status` is computed not stored so the "now" anchor stays
-// the single source of truth.
-function flightStatus(f, now = NOW) {
+// Status derivation. `status` is computed not stored so it always reflects
+// whatever `now` (real wall-clock time) is passed in at render time.
+function flightStatus(f, now = new Date()) {
   if (f.past) return "past";
   const dep = f.depart.getTime(), arr = f.arrive.getTime(), n = now.getTime();
   if (n >= arr - minutes(5) && f.landed)   return "landed";
@@ -220,16 +86,31 @@ function flightStatus(f, now = NOW) {
   return "scheduled";
 }
 
-// Convenience getters.
+// Journey mode metadata — flights track live via FlightAware; train/car are
+// logged for the board/calendar but have no live-tracking source (yet).
+const MODE_META = {
+  flight: { icon: "✈", label: "Flight" },
+  train:  { icon: "🚆", label: "Train" },
+  car:    { icon: "🚗", label: "Car" },
+};
+const modeOf = (f) => MODE_META[f?.mode] ? f.mode : "flight";
+const modeMeta = (f) => MODE_META[modeOf(f)];
+
+// Convenience getters. Airline/airport codes can now be free-typed (see
+// save-flight's stub-row upsert) or, for train/car, plain city text that was
+// never meant to resolve against these small reference tables at all — both
+// fall back to a bare object built from the code itself so callers can keep
+// reading `.name`/`.city`/`.color` without null-checking everywhere.
 const familyById  = (id) => FAMILY.find((p) => p.id === id);
-const airline     = (code) => AIRLINES[code];
-const airport     = (code) => AIRPORTS[code];
+const airline     = (code) => AIRLINES[code] || { code: code || "", name: code || "—", color: "var(--ink-soft)" };
+const airport     = (code) => AIRPORTS[code] || { code: code || "", city: code || "—", country: "", name: code || "" };
 
 // FlightAware live-tracking link for a given flight (airline code + number).
+// Only meaningful for mode: 'flight' — callers should gate on that.
 const flightAwareUrl = (f) => `https://www.flightaware.com/live/flight/${f.airline}${f.number}`;
 
 window.MGData = {
-  NOW, FAMILY, AIRPORTS, AIRLINES, FLIGHTS,
-  flightStatus, familyById, airline, airport, flightAwareUrl,
+  NOW, FAMILY, AIRPORTS, AIRLINES, FLIGHTS, MODE_META,
+  flightStatus, familyById, airline, airport, flightAwareUrl, modeOf, modeMeta,
   minutes, hours, days,
 };
