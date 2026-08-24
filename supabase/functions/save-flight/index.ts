@@ -13,6 +13,11 @@
 // failing the save — see the "loosen reference-table constraints" note in
 // schema.sql. Train/car place names go through the same stub mechanism,
 // keyed by whatever text was typed.
+//
+// Pass `flightId` in the body to update an existing flight in place instead
+// of inserting a new one (used by AddTripModal's edit mode) — same
+// validation either way, just an update + traveler-list replace instead of
+// an insert.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -36,9 +41,10 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json();
     const {
-      mode: rawMode, airline_code, flight_number, from_airport, to_airport,
+      flightId, mode: rawMode, airline_code, flight_number, from_airport, to_airport,
       depart_at, arrive_at, note, source, imagePath, travelerIds, submittedBy,
     } = body;
+    const isEdit = !!flightId && typeof flightId === "string";
     const mode = MODES.includes(rawMode) ? rawMode : "flight";
     const isFlight = mode === "flight";
 
@@ -77,31 +83,41 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { data: flight, error: flightErr } = await supabase
-      .from("flights")
-      .insert({
-        mode,
-        airline_code: airlineCode,
-        flight_number: isFlight && flight_number ? String(flight_number) : null,
-        from_airport: fromCode,
-        to_airport: toCode,
-        depart_at,
-        arrive_at,
-        note: note || null,
-        source: source || "upload",
-        source_image_path: imagePath || null,
-        submitted_by: submittedBy || null,
-      })
-      .select()
-      .single();
+    const row = {
+      mode,
+      airline_code: airlineCode,
+      flight_number: isFlight && flight_number ? String(flight_number) : null,
+      from_airport: fromCode,
+      to_airport: toCode,
+      depart_at,
+      arrive_at,
+      note: note || null,
+      source: source || "upload",
+      source_image_path: imagePath || null,
+      submitted_by: submittedBy || null,
+    };
+
+    const { data: flight, error: flightErr } = isEdit
+      ? await supabase.from("flights").update(row).eq("id", flightId).select().single()
+      : await supabase.from("flights").insert(row).select().single();
 
     if (flightErr) return json({ ok: false, error: flightErr.message }, 500);
+
+    // Simplest correct way to make the traveler list match exactly what was
+    // submitted: clear whatever's there (a no-op on a fresh insert) and
+    // re-insert the current set, rather than diffing old vs. new.
+    if (isEdit) {
+      const { error: clearErr } = await supabase.from("flight_travelers").delete().eq("flight_id", flight.id);
+      if (clearErr) return json({ ok: false, error: `Couldn't update travelers: ${clearErr.message}` }, 500);
+    }
 
     const travelerRows = travelerIds.map((id: string) => ({ flight_id: flight.id, family_member_id: id }));
     const { error: travelersErr } = await supabase.from("flight_travelers").insert(travelerRows);
     if (travelersErr) {
-      // Don't leave an orphaned flight with nobody attached to it.
-      await supabase.from("flights").delete().eq("id", flight.id);
+      if (!isEdit) {
+        // Don't leave an orphaned new flight with nobody attached to it.
+        await supabase.from("flights").delete().eq("id", flight.id);
+      }
       return json({ ok: false, error: `Couldn't attach travelers: ${travelersErr.message}` }, 500);
     }
 

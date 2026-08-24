@@ -48,6 +48,7 @@ function App() {
   const [view, setView] = React.useState("board");      // board | calendar | travelers
   const [openFlight, setOpenFlight] = React.useState(null);
   const [addOpen, setAddOpen] = React.useState(false);
+  const [editingFlight, setEditingFlight] = React.useState(null);
   const [filterIds, setFilterIds] = React.useState([]);
 
   // Real flights, fetched from Supabase — merged alongside the curated demo
@@ -126,8 +127,19 @@ function App() {
 
       <Footer />
 
-      <FlightDetailModal flight={openFlight} onClose={() => setOpenFlight(null)} now={now} />
-      <AddTripModal open={addOpen} onClose={() => setAddOpen(false)} onSubmit={handleSubmit} />
+      <FlightDetailModal
+        flight={openFlight}
+        onClose={() => setOpenFlight(null)}
+        now={now}
+        onEdit={(f) => { setOpenFlight(null); setEditingFlight(f); }}
+        onDeleted={refreshFlights}
+      />
+      <AddTripModal
+        open={addOpen || !!editingFlight}
+        onClose={() => { setAddOpen(false); setEditingFlight(null); }}
+        onSubmit={handleSubmit}
+        editing={editingFlight}
+      />
 
       <TweaksPanel title="Tweaks">
         <TweakSection label="Palette">

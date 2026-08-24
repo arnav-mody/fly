@@ -15,6 +15,19 @@ const _MODE     = window.MGData.MODE_META;
 // actual JSON error we sent back (see parse-flight/save-flight) is sitting
 // on error.context, which is the raw Response object. Dig it out so people
 // see the real reason instead of this one useless sentence every time.
+// A hung request (bad connection, a cold-start stall, whatever) previously
+// left the UI stuck on "Saving…" forever — the promise just never settled,
+// so neither the success path nor the .catch() ever ran. Race every
+// Edge Function call against a hard timeout so that can't happen again.
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} is taking too long — check your connection and try again.`)), ms)
+    ),
+  ]);
+}
+
 async function readFunctionError(error) {
   if (!error) return null;
   try {
@@ -93,7 +106,11 @@ function Modal({ open, onClose, children, size = "lg" }) {
 }
 
 // ── FlightDetail ────────────────────────────────────────────────────────────
-function FlightDetailModal({ flight, onClose, now }) {
+function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted }) {
+  const [deleting, setDeleting] = React.useState(false);
+  const [deleteError, setDeleteError] = React.useState(null);
+  React.useEffect(() => { setDeleting(false); setDeleteError(null); }, [flight?.id]);
+
   if (!flight) return null;
   const status   = _flightStatus(flight, now);
   const mode     = _modeOf(flight);
@@ -103,6 +120,28 @@ function FlightDetailModal({ flight, onClose, now }) {
   const from     = { ..._airport(flight.from), code: flight.from };
   const to       = { ..._airport(flight.to),   code: flight.to };
   const travelers = flight.travelers.map(_familyById).filter(Boolean);
+
+  const handleDelete = () => {
+    if (!window.confirm(`Delete this trip (${flight.from} → ${flight.to})? This can't be undone.`)) return;
+    setDeleting(true);
+    setDeleteError(null);
+    withTimeout(
+      window.supabaseClient.functions.invoke("delete-flight", { body: { flightId: flight.id } }),
+      15000, "Deleting"
+    ).then(async ({ data, error }) => {
+      setDeleting(false);
+      if (error || !data || !data.ok) {
+        const message = (data && data.error) || await readFunctionError(error) || "Couldn't delete this trip — mind trying again?";
+        setDeleteError(message);
+        return;
+      }
+      onDeleted();
+      onClose();
+    }).catch((err) => {
+      setDeleting(false);
+      setDeleteError(String((err && err.message) || err));
+    });
+  };
 
   return (
     <Modal open={!!flight} onClose={onClose} size="lg">
@@ -229,6 +268,19 @@ function FlightDetailModal({ flight, onClose, now }) {
             <button>Send</button>
           </div>
         </div>
+
+        {/* Manage */}
+        <div className="fd__manage">
+          {deleteError && <div className="fd__manage-error">{deleteError}</div>}
+          <div className="fd__manage-actions">
+            <button className="fd__manage-btn" onClick={() => onEdit(flight)} disabled={deleting}>
+              Edit trip
+            </button>
+            <button className="fd__manage-btn fd__manage-btn--danger" onClick={handleDelete} disabled={deleting}>
+              {deleting ? <><span className="at__spinner" aria-hidden="true" /> Deleting…</> : "Delete trip"}
+            </button>
+          </div>
+        </div>
       </div>
     </Modal>
   );
@@ -278,7 +330,18 @@ function matchTravelerByName(name) {
   return hit ? hit.id : null;
 }
 
-function AddTripModal({ open, onClose, onSubmit }) {
+// UTC-getters because the app deliberately stores clock digits "as if" UTC
+// (see fmtTime elsewhere) rather than doing real timezone conversion — same
+// convention applied in reverse here to prefill the form from a saved flight.
+function dateToFormFields(d) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return {
+    date: `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`,
+    time: `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`,
+  };
+}
+
+function AddTripModal({ open, onClose, onSubmit, editing }) {
   const [mode, setMode] = React.useState("flight");     // "flight" | "train" | "car"
   const [form, setForm] = React.useState(EMPTY_TRIP_FORM);
 
@@ -301,7 +364,24 @@ function AddTripModal({ open, onClose, onSubmit }) {
   const [submitError, setSubmitError] = React.useState(null);
 
   React.useEffect(() => {
-    if (!open) {
+    if (open && editing) {
+      // Prefill from the flight being edited — same "clock digits stored as
+      // UTC" convention the rest of the app uses (see dateToFormFields).
+      const dep = dateToFormFields(editing.depart);
+      const arr = dateToFormFields(editing.arrive);
+      setMode(_modeOf(editing));
+      setForm({
+        travelers: editing.travelers || [],
+        airline: editing.airline || "",
+        number: editing.number || "",
+        from: editing.from || "",
+        to: editing.to || "",
+        date: dep.date,
+        departTime: dep.time,
+        arriveTime: arr.time,
+        note: editing.note || "",
+      });
+    } else if (!open) {
       // reset on close
       setTimeout(() => {
         setMode("flight"); setForm(EMPTY_TRIP_FORM);
@@ -310,7 +390,7 @@ function AddTripModal({ open, onClose, onSubmit }) {
         setSaving(false); setSubmitError(null);
       }, 200);
     }
-  }, [open]);
+  }, [open, editing]);
 
   const applyParsed = (p) => {
     setForm((f) => ({
@@ -336,6 +416,7 @@ function AddTripModal({ open, onClose, onSubmit }) {
   };
 
   const submit = () => {
+    const isFlight = mode === "flight";
     const missing = [];
     if (!form.from) missing.push("where from");
     if (!form.to) missing.push("where to");
@@ -348,39 +429,52 @@ function AddTripModal({ open, onClose, onSubmit }) {
     }
     setSaving(true);
     setSubmitError(null);
-    const departAt = new Date(`${form.date}T${form.departTime}:00Z`);
-    // Arrival is optional (mainly for train/car, where it's often not known
-    // upfront) — default to 2 hours out so status still has a valid window.
-    const arriveAt = form.arriveTime
-      ? new Date(`${form.date}T${form.arriveTime}:00Z`)
-      : new Date(departAt.getTime() + 2 * 60 * 60 * 1000);
-    window.supabaseClient.functions.invoke("save-flight", {
-      body: {
-        mode,
-        airline_code: isFlight ? (form.airline || null) : null,
-        flight_number: isFlight ? (form.number || null) : null,
-        from_airport: form.from,
-        to_airport: form.to,
-        depart_at: departAt.toISOString(),
-        arrive_at: arriveAt.toISOString(),
-        note: form.note || null,
-        source: imagePath ? "upload" : (textParsed ? "paste" : "manual"),
-        imagePath: imagePath || null,
-        travelerIds: form.travelers,
-      },
-    }).then(async ({ data, error }) => {
-      setSaving(false);
-      if (error || !data || !data.ok) {
-        const message = (data && data.error) || await readFunctionError(error) || "Couldn't save this trip — mind trying again?";
-        setSubmitError(message);
-        return;
-      }
-      onSubmit(data.flight);
-      onClose();
-    }).catch((err) => {
+    // Everything from here down used to run unguarded — a plain JS bug in
+    // this block (a real one happened: a variable referenced below its
+    // definition got deleted in an edit) throws synchronously, before the
+    // promise chain even starts, which left the button stuck on "Saving…"
+    // forever since neither .then() nor .catch() ever got a chance to run.
+    // Wrapping it means any such bug still shows an error instead of
+    // hanging.
+    try {
+      const departAt = new Date(`${form.date}T${form.departTime}:00Z`);
+      // Arrival is optional (mainly for train/car, where it's often not known
+      // upfront) — default to 2 hours out so status still has a valid window.
+      const arriveAt = form.arriveTime
+        ? new Date(`${form.date}T${form.arriveTime}:00Z`)
+        : new Date(departAt.getTime() + 2 * 60 * 60 * 1000);
+      withTimeout(window.supabaseClient.functions.invoke("save-flight", {
+        body: {
+          flightId: editing ? editing.id : undefined,
+          mode,
+          airline_code: isFlight ? (form.airline || null) : null,
+          flight_number: isFlight ? (form.number || null) : null,
+          from_airport: form.from,
+          to_airport: form.to,
+          depart_at: departAt.toISOString(),
+          arrive_at: arriveAt.toISOString(),
+          note: form.note || null,
+          source: editing ? "edit" : (imagePath ? "upload" : (textParsed ? "paste" : "manual")),
+          imagePath: imagePath || null,
+          travelerIds: form.travelers,
+        },
+      }), 20000, "Saving").then(async ({ data, error }) => {
+        setSaving(false);
+        if (error || !data || !data.ok) {
+          const message = (data && data.error) || await readFunctionError(error) || "Couldn't save this trip — mind trying again?";
+          setSubmitError(message);
+          return;
+        }
+        onSubmit(data.flight);
+        onClose();
+      }).catch((err) => {
+        setSaving(false);
+        setSubmitError(String((err && err.message) || err));
+      });
+    } catch (err) {
       setSaving(false);
       setSubmitError(String((err && err.message) || err));
-    });
+    }
   };
 
   // Real text parsing: same Claude call as the image path, just fed pasted
@@ -389,9 +483,9 @@ function AddTripModal({ open, onClose, onSubmit }) {
     if (!pasteText.trim()) return;
     setParsingText(true);
     setTextError(null);
-    window.supabaseClient.functions.invoke("parse-flight", {
+    withTimeout(window.supabaseClient.functions.invoke("parse-flight", {
       body: { text: pasteText },
-    }).then(async ({ data, error }) => {
+    }), 30000, "Reading").then(async ({ data, error }) => {
       setParsingText(false);
       if (error || !data || !data.ok) {
         const message = (data && data.error) || await readFunctionError(error) || "Couldn't make sense of that — try filling in the fields below instead?";
@@ -423,9 +517,9 @@ function AddTripModal({ open, onClose, onSubmit }) {
       reader.onerror = () => { setUploading(false); setUploadError("Couldn't read that file — try a different one?"); };
       reader.onload = () => {
         const base64 = String(reader.result).split(",")[1];
-        window.supabaseClient.functions.invoke("parse-flight", {
+        withTimeout(window.supabaseClient.functions.invoke("parse-flight", {
           body: { image: base64, mediaType: "image/jpeg" },
-        }).then(async ({ data, error }) => {
+        }), 30000, "Reading").then(async ({ data, error }) => {
           setUploading(false);
           if (error || !data || !data.ok) {
             const message = (data && data.error) || await readFunctionError(error) || "Couldn't read that image — mind typing the details in below?";
@@ -451,7 +545,7 @@ function AddTripModal({ open, onClose, onSubmit }) {
     <Modal open={open} onClose={onClose} size="md">
       <div className="at">
         <header className="at__head">
-          <h2 className="at__title">Share Travel Details</h2>
+          <h2 className="at__title">{editing ? "Edit Trip" : "Share Travel Details"}</h2>
         </header>
 
         <div className="at__body">
@@ -474,7 +568,7 @@ function AddTripModal({ open, onClose, onSubmit }) {
             </div>
           </div>
 
-          {mode === "flight" && (
+          {mode === "flight" && !editing && (
             <div className="at__quickfill">
               <label className="at__upload-cta" htmlFor="at-file-input">
                 <input
@@ -493,7 +587,12 @@ function AddTripModal({ open, onClose, onSubmit }) {
 
               {(uploading || uploadError || uploadParsed) && (
                 <>
-                  {uploading && <div className="at__parsed at__parsed--pending">Reading your boarding pass…</div>}
+                  {uploading && (
+                    <div className="at__parsed at__parsed--pending">
+                      <span className="at__spinner" aria-hidden="true" />
+                      Reading your boarding pass…
+                    </div>
+                  )}
                   {uploadError && (
                     <div className="at__parsed at__parsed--error">
                       <div className="at__parsed-mark">!</div>
@@ -527,7 +626,7 @@ function AddTripModal({ open, onClose, onSubmit }) {
                     placeholder={`British Airways BA286, SFO to LHR, Sat May 23, depart 8:40pm arrive 2:55pm`}
                   />
                   <button className="at__primary at__paste-btn" onClick={parseText} disabled={parsingText || !pasteText.trim()}>
-                    {parsingText ? "Reading…" : "Fill in from text"}
+                    {parsingText ? <><span className="at__spinner at__spinner--light" aria-hidden="true" /> Reading…</> : "Fill in from text"}
                   </button>
                 </label>
               )}
@@ -618,7 +717,7 @@ function AddTripModal({ open, onClose, onSubmit }) {
             <span>Date</span>
             <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
           </label>
-          <div className="at__row">
+          <div className="at__row at__row--times">
             <label className="at__field">
               <span>Depart</span>
               <input type="time" value={form.departTime} onChange={(e) => setForm({ ...form, departTime: e.target.value })} />
@@ -657,7 +756,7 @@ function AddTripModal({ open, onClose, onSubmit }) {
           <div className="at__actions">
             <button className="at__secondary" onClick={onClose} disabled={saving}>Cancel</button>
             <button className="at__primary" onClick={submit} disabled={saving}>
-              {saving ? "Saving…" : "Add to the board"}
+              {saving ? <><span className="at__spinner at__spinner--light" aria-hidden="true" /> Saving…</> : editing ? "Save changes" : "Add to the board"}
             </button>
           </div>
         </div>
