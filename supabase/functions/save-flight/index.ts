@@ -44,7 +44,6 @@ Deno.serve(async (req) => {
 
     const errors: string[] = [];
     if (isFlight) {
-      if (!flight_number) errors.push("flight number is required");
       if (!from_airport || !IATA3.test(from_airport)) errors.push("origin must be a 3-letter airport code");
       if (!to_airport || !IATA3.test(to_airport)) errors.push("destination must be a 3-letter airport code");
       if (airline_code && !IATA2.test(airline_code)) errors.push("airline code must be 2 characters");
@@ -83,7 +82,7 @@ Deno.serve(async (req) => {
       .insert({
         mode,
         airline_code: airlineCode,
-        flight_number: isFlight ? String(flight_number) : null,
+        flight_number: isFlight && flight_number ? String(flight_number) : null,
         from_airport: fromCode,
         to_airport: toCode,
         depart_at,

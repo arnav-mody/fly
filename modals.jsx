@@ -336,9 +336,16 @@ function AddTripModal({ open, onClose, onSubmit }) {
   };
 
   const submit = () => {
-    const isFlight = mode === "flight";
-    if (!form.travelers.length || !form.from || !form.to || !form.date || !form.departTime) return;
-    if (isFlight && !form.number) return;
+    const missing = [];
+    if (!form.from) missing.push("where from");
+    if (!form.to) missing.push("where to");
+    if (!form.date) missing.push("the date");
+    if (!form.departTime) missing.push("a departure time");
+    if (!form.travelers.length) missing.push("who's traveling");
+    if (missing.length) {
+      setSubmitError(`Still need: ${missing.join(", ")}.`);
+      return;
+    }
     setSaving(true);
     setSubmitError(null);
     const departAt = new Date(`${form.date}T${form.departTime}:00Z`);
@@ -351,7 +358,7 @@ function AddTripModal({ open, onClose, onSubmit }) {
       body: {
         mode,
         airline_code: isFlight ? (form.airline || null) : null,
-        flight_number: isFlight ? form.number : null,
+        flight_number: isFlight ? (form.number || null) : null,
         from_airport: form.from,
         to_airport: form.to,
         depart_at: departAt.toISOString(),
@@ -548,7 +555,7 @@ function AddTripModal({ open, onClose, onSubmit }) {
             <>
               <div className="at__row">
                 <label className="at__field">
-                  <span>Airline</span>
+                  <span>Airline (optional)</span>
                   <input
                     list="at-airline-list"
                     value={form.airline}
@@ -561,8 +568,8 @@ function AddTripModal({ open, onClose, onSubmit }) {
                     ))}
                   </datalist>
                 </label>
-                <label className="at__field at__field--narrow">
-                  <span>Flight #</span>
+                <label className="at__field">
+                  <span>Flight # (optional)</span>
                   <input value={form.number} onChange={(e) => setForm({ ...form, number: e.target.value })} placeholder="286" />
                 </label>
               </div>
@@ -607,16 +614,16 @@ function AddTripModal({ open, onClose, onSubmit }) {
             </div>
           )}
 
+          <label className="at__field at__field--full">
+            <span>Date</span>
+            <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+          </label>
           <div className="at__row">
             <label className="at__field">
-              <span>Date</span>
-              <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
-            </label>
-            <label className="at__field at__field--narrow">
               <span>Depart</span>
               <input type="time" value={form.departTime} onChange={(e) => setForm({ ...form, departTime: e.target.value })} />
             </label>
-            <label className="at__field at__field--narrow">
+            <label className="at__field">
               <span>Arrive{mode !== "flight" ? " (optional)" : ""}</span>
               <input type="time" value={form.arriveTime} onChange={(e) => setForm({ ...form, arriveTime: e.target.value })} />
             </label>

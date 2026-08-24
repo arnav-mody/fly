@@ -85,6 +85,12 @@ function App() {
     return buckets;
   }, [allFlights, now]);
 
+  // Everything already flown — the "Past trips" tab. Includes flights dated
+  // well in the past (e.g. an old boarding pass added for testing), which
+  // otherwise have nowhere to show up: the board only surfaces what's
+  // upcoming or in progress.
+  const pastFlights = [...byStatus.landed, ...byStatus.past];
+
   // Person filter — applied across all buckets.
   const f = (list) => filterIds.length ? list.filter((x) => x.travelers.some((id) => filterIds.includes(id))) : list;
 
@@ -121,6 +127,9 @@ function App() {
         )}
         {view === "travelers" && (
           <TravelersView allFlights={allFlights} now={now} onSelectPerson={(id) => { setFilterIds([id]); setView("board"); }} />
+        )}
+        {view === "archive" && (
+          <ArchiveView flights={pastFlights} now={now} onOpen={setOpenFlight} />
         )}
       </main>
 
@@ -179,6 +188,7 @@ function TopBar({ now, view, setView, onAdd, airborneCount, soonCount, filterIds
         <button data-active={view === "board"}     onClick={() => setView("board")}>Home</button>
         <button data-active={view === "calendar"}  onClick={() => setView("calendar")}>Calendar</button>
         <button data-active={view === "travelers"} onClick={() => setView("travelers")}>Travelers</button>
+        <button data-active={view === "archive"}   onClick={() => setView("archive")}>Past trips</button>
       </nav>
       <div className="topbar__right">
         <PeopleFilter ids={filterIds} onChange={setFilterIds} />
@@ -694,7 +704,6 @@ function Footer() {
           </div>
         </div>
       </div>
-      <div className="footer__copy">© 2026 · Made on a Tuesday afternoon</div>
     </footer>
   );
 }
