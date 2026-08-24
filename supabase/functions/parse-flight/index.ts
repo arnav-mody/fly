@@ -21,43 +21,60 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY =
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("SUPABASE_SECRET_KEY")!;
 
-const FLIGHT_TOOL = {
-  name: "record_flight",
-  description:
-    "Structured flight details extracted from a boarding pass, e-ticket, or booking confirmation image.",
-  input_schema: {
-    type: "object",
-    properties: {
-      passenger_name: { type: ["string", "null"], description: "Name printed on the document, if visible." },
-      airline_code: {
-        type: ["string", "null"],
-        description: "2-letter IATA airline code, e.g. 'UA'. Best guess from the airline name/logo if the code itself isn't printed.",
+// Computed fresh per request from the server's own clock — Claude has no
+// reliable notion of "today" on its own (its training cutoff is not today's
+// date), so a boarding pass with no printed year was seen defaulting to a
+// past year instead of the upcoming one. Every date-related instruction
+// below is grounded against this explicit value instead of leaving the
+// model to guess.
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function buildFlightTool(today: string) {
+  return {
+    name: "record_flight",
+    description:
+      "Structured flight details extracted from a boarding pass, e-ticket, or booking confirmation image.",
+    input_schema: {
+      type: "object",
+      properties: {
+        passenger_name: { type: ["string", "null"], description: "Name printed on the document, if visible." },
+        airline_code: {
+          type: ["string", "null"],
+          description: "2-letter IATA airline code, e.g. 'UA'. Best guess from the airline name/logo if the code itself isn't printed.",
+        },
+        flight_number: { type: ["string", "null"], description: "Digits only, no airline-code prefix, e.g. '905'." },
+        from_airport: { type: ["string", "null"], description: "3-letter IATA origin airport code." },
+        to_airport: { type: ["string", "null"], description: "3-letter IATA destination airport code." },
+        date: {
+          type: ["string", "null"],
+          description:
+            `Departure date as YYYY-MM-DD. Today is ${today}. If a year is printed, use it exactly as ` +
+            "printed, even if that makes the flight dated in the past (someone may be logging an old " +
+            "trip on purpose). If only month/day is printed with NO year, assume this is an upcoming " +
+            `trip being booked or checked in for around now — pick the soonest date on/after ${today} ` +
+            "that matches that month/day, not a past year.",
+        },
+        depart_time: { type: ["string", "null"], description: "Local departure time as 24-hour HH:MM, if printed." },
+        arrive_time: {
+          type: ["string", "null"],
+          description: "Local arrival time as 24-hour HH:MM, ONLY if explicitly printed — never calculate or guess this.",
+        },
+        seat: { type: ["string", "null"] },
+        confirmation: { type: ["string", "null"], description: "Booking reference / confirmation / PNR code." },
+        gate: { type: ["string", "null"] },
+        terminal: { type: ["string", "null"] },
+        low_confidence_fields: {
+          type: "array",
+          items: { type: "string" },
+          description: "Names of the above fields you're genuinely unsure about, so the UI can flag them for double-checking.",
+        },
       },
-      flight_number: { type: ["string", "null"], description: "Digits only, no airline-code prefix, e.g. '905'." },
-      from_airport: { type: ["string", "null"], description: "3-letter IATA origin airport code." },
-      to_airport: { type: ["string", "null"], description: "3-letter IATA destination airport code." },
-      date: {
-        type: ["string", "null"],
-        description: "Departure date as YYYY-MM-DD. If only month/day is printed with no year, infer the most plausible upcoming year.",
-      },
-      depart_time: { type: ["string", "null"], description: "Local departure time as 24-hour HH:MM, if printed." },
-      arrive_time: {
-        type: ["string", "null"],
-        description: "Local arrival time as 24-hour HH:MM, ONLY if explicitly printed — never calculate or guess this.",
-      },
-      seat: { type: ["string", "null"] },
-      confirmation: { type: ["string", "null"], description: "Booking reference / confirmation / PNR code." },
-      gate: { type: ["string", "null"] },
-      terminal: { type: ["string", "null"] },
-      low_confidence_fields: {
-        type: "array",
-        items: { type: "string" },
-        description: "Names of the above fields you're genuinely unsure about, so the UI can flag them for double-checking.",
-      },
+      required: ["airline_code", "flight_number", "from_airport", "to_airport", "date", "depart_time"],
     },
-    required: ["airline_code", "flight_number", "from_airport", "to_airport", "date", "depart_time"],
-  },
-};
+  } as const;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
@@ -87,20 +104,21 @@ Deno.serve(async (req) => {
       if (uploadError) return json({ ok: false, error: `Upload failed: ${uploadError.message}` }, 500);
     }
 
+    const today = todayISO();
     const content: unknown[] = [];
     if (hasImage) content.push({ type: "image", source: { type: "base64", media_type: mediaType, data: image } });
     content.push({
       type: "text",
       text: hasImage
-        ? "This is a photo or screenshot of a boarding pass, e-ticket, or flight booking " +
-          "confirmation. Extract the flight details using the record_flight tool. If a field " +
-          "genuinely isn't visible in the image, use null for it rather than guessing — a " +
-          "family member will review and fill in gaps by hand before this is saved."
-        : "This is pasted or typed text describing a flight — could be a booking confirmation " +
-          "email, an itinerary, or just someone's own shorthand notes. Extract the flight " +
-          "details using the record_flight tool. If a field genuinely isn't mentioned, use null " +
-          "for it rather than guessing — a family member will review and fill in gaps by hand " +
-          "before this is saved.\n\n---\n" + String(text).slice(0, 8000),
+        ? `Today's date is ${today}. This is a photo or screenshot of a boarding pass, e-ticket, ` +
+          "or flight booking confirmation. Extract the flight details using the record_flight " +
+          "tool. If a field genuinely isn't visible in the image, use null for it rather than " +
+          "guessing — a family member will review and fill in gaps by hand before this is saved."
+        : `Today's date is ${today}. This is pasted or typed text describing a flight — could be ` +
+          "a booking confirmation email, an itinerary, or just someone's own shorthand notes. " +
+          "Extract the flight details using the record_flight tool. If a field genuinely isn't " +
+          "mentioned, use null for it rather than guessing — a family member will review and " +
+          "fill in gaps by hand before this is saved.\n\n---\n" + String(text).slice(0, 8000),
     });
 
     const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
@@ -113,7 +131,7 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 1024,
-        tools: [FLIGHT_TOOL],
+        tools: [buildFlightTool(today)],
         tool_choice: { type: "tool", name: "record_flight" },
         messages: [{ role: "user", content }],
       }),

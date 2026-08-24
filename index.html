@@ -883,42 +883,6 @@
     .trav-card__stats span { font-family: var(--font-mono); font-size: 0.55rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-faint); }
     .trav-card__stats > div[data-air="1"] strong { color: var(--sky); }
 
-    /* ── Archive ────────────────────────────────────────────────────────── */
-    .archive { display: flex; flex-direction: column; gap: 32px; }
-    .arch-group { display: flex; flex-direction: column; }
-    .arch-group__head {
-      display: flex; align-items: center; gap: 16px; padding-bottom: 8px;
-      margin-bottom: 4px;
-    }
-    .arch-group__when {
-      font-family: var(--font-serif); font-size: 1.6rem; letter-spacing: -0.01em;
-    }
-    .arch-group__line { flex: 1; height: 0.5px; background: var(--paper-line); }
-    .arch-group__count {
-      font-family: var(--font-mono); font-size: 0.72rem; color: var(--ink-faint);
-      letter-spacing: 0.08em; text-transform: uppercase;
-    }
-    .arch-row {
-      appearance: none; border: 0; cursor: pointer; font: inherit; color: inherit;
-      background: transparent; padding: 14px 12px; border-radius: 10px;
-      display: grid;
-      grid-template-columns: 80px auto 90px 1fr 70px 1.4fr;
-      gap: 18px; align-items: center; text-align: left;
-      transition: background .15s;
-      border-bottom: 0.5px solid var(--paper-line);
-    }
-    .arch-row:last-child { border-bottom: 0; }
-    .arch-row:hover { background: var(--paper-soft); }
-    .arch-row__date { font-family: var(--font-mono); font-size: 0.78rem; color: var(--ink-soft); }
-    .arch-row__route { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 0.95rem; font-weight: 500; }
-    .arch-row__arrow { color: var(--ink-faint); }
-    .arch-row__cities { font-size: 0.9rem; color: var(--ink-soft); }
-    .arch-row__flight { font-family: var(--font-mono); font-size: 0.85rem; }
-    .arch-row__note { font-family: var(--font-serif); font-style: italic; color: var(--ink-faint); font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    @media (max-width: 900px) {
-      .arch-row { grid-template-columns: 80px auto 1fr; }
-      .arch-row__cities, .arch-row__flight, .arch-row__note { display: none; }
-    }
 
     /* ── Password gate (temporary, pre-auth) ──────────────────────────────── */
     .gate {

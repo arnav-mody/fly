@@ -85,12 +85,6 @@ function App() {
     return buckets;
   }, [allFlights, now]);
 
-  // Everything already flown — the "Past trips" tab. Includes flights dated
-  // well in the past (e.g. an old boarding pass added for testing), which
-  // otherwise have nowhere to show up: the board only surfaces what's
-  // upcoming or in progress.
-  const pastFlights = [...byStatus.landed, ...byStatus.past];
-
   // Person filter — applied across all buckets.
   const f = (list) => filterIds.length ? list.filter((x) => x.travelers.some((id) => filterIds.includes(id))) : list;
 
@@ -127,9 +121,6 @@ function App() {
         )}
         {view === "travelers" && (
           <TravelersView allFlights={allFlights} now={now} onSelectPerson={(id) => { setFilterIds([id]); setView("board"); }} />
-        )}
-        {view === "archive" && (
-          <ArchiveView flights={pastFlights} now={now} onOpen={setOpenFlight} />
         )}
       </main>
 
@@ -188,7 +179,6 @@ function TopBar({ now, view, setView, onAdd, airborneCount, soonCount, filterIds
         <button data-active={view === "board"}     onClick={() => setView("board")}>Home</button>
         <button data-active={view === "calendar"}  onClick={() => setView("calendar")}>Calendar</button>
         <button data-active={view === "travelers"} onClick={() => setView("travelers")}>Travelers</button>
-        <button data-active={view === "archive"}   onClick={() => setView("archive")}>Past trips</button>
       </nav>
       <div className="topbar__right">
         <PeopleFilter ids={filterIds} onChange={setFilterIds} />
@@ -639,54 +629,6 @@ function TravelersView({ allFlights, now, onSelectPerson }) {
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-// ── ArchiveView ─────────────────────────────────────────────────────────────
-function ArchiveView({ flights, now, onOpen }) {
-  // Group by month-year string.
-  const groups = {};
-  for (const f of flights) {
-    const key = f.depart.toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
-    (groups[key] = groups[key] || []).push(f);
-  }
-  return (
-    <div className="archive" data-screen-label="03 Archive">
-      <SectionHead kicker="The travel diary" title="Where we've been"
-                   sub="Every flight the family has logged, oldest at the bottom." />
-      {Object.entries(groups).map(([month, items]) => (
-        <div key={month} className="arch-group">
-          <div className="arch-group__head">
-            <span className="arch-group__when">{month}</span>
-            <span className="arch-group__line" />
-            <span className="arch-group__count">{items.length} trip{items.length === 1 ? "" : "s"}</span>
-          </div>
-          {items.map((f) => {
-            const mode = modeOf(f);
-            const al = airline(f.airline);
-            const from = airport(f.from), to = airport(f.to);
-            const travelers = f.travelers.map(familyById).filter(Boolean);
-            return (
-              <button key={f.id} className="arch-row" onClick={() => onOpen(f)}>
-                <div className="arch-row__date">{f.depart.toLocaleString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}</div>
-                <AvatarStack ids={f.travelers} size={26} />
-                <div className="arch-row__route">
-                  <span className="arch-row__code">{f.from}</span>
-                  <span className="arch-row__arrow">→</span>
-                  <span className="arch-row__code">{f.to}</span>
-                </div>
-                <div className="arch-row__cities">{from.city} → {to.city}</div>
-                {mode === "flight"
-                  ? <div className="arch-row__flight"><span style={{ color: al.color }}>{f.airline}</span>{f.number}</div>
-                  : <div className="arch-row__flight">{modeMeta(f).icon} {modeMeta(f).label}</div>}
-                <div className="arch-row__note">{f.note || ""}</div>
-              </button>
-            );
-          })}
-        </div>
-      ))}
-      {flights.length === 0 && <EmptyRow text="No past trips logged yet. The archive fills up over time." />}
     </div>
   );
 }
