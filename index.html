@@ -420,6 +420,12 @@
       font-size: 0.95rem; line-height: 1.4;
       padding-top: 12px; border-top: 0.5px dashed var(--paper-line);
     }
+    .card__no-return {
+      appearance: none; border: 0; background: none; padding: 0; text-align: left;
+      font: inherit; font-size: 0.82rem; color: var(--accent); cursor: pointer;
+      text-decoration: underline; text-underline-offset: 2px;
+    }
+    .fd__no-return { display: block; margin-top: 14px; }
 
     /* ── FlightAware link (shared across cards/modal) ─────────────────────── */
     .fa-link {
@@ -433,8 +439,6 @@
     .fa-link__arrow { transition: transform .15s; }
     .fa-link:hover .fa-link__arrow { transform: translate(1px, -1px); }
     .card__fa { margin-top: -2px; }
-    .tcard__fa { margin-top: 2px; }
-    .nowrow__fa { align-self: flex-start; }
     .fd__fa { margin-top: 14px; }
 
     /* ── Avatar ─────────────────────────────────────────────────────────── */
@@ -767,6 +771,11 @@
 
     .at__paste-btn { align-self: flex-start; }
     .at__hint { font-size: 0.78rem; color: var(--ink-faint); margin-top: -8px; }
+    .at__checkbox {
+      display: flex; align-items: center; gap: 10px; cursor: pointer;
+      font-size: 0.9rem; color: var(--ink-soft);
+    }
+    .at__checkbox input { width: 16px; height: 16px; accent-color: var(--accent); }
 
     .at__body { display: flex; flex-direction: column; gap: 12px; }
     /* Two equal columns — every .at__row currently holds exactly two fields. */
@@ -1018,71 +1027,6 @@
     }
     .htile__lines .hero__line-val { font-size: 1.3rem; }
 
-    /* ── Trips home ────────────────────────────────────────────────────── */
-    .trips-home { display: flex; flex-direction: column; gap: 48px; }
-    .board-secondary { margin-top: 8px; display: flex; flex-direction: column; gap: 20px; }
-    .board-secondary .board { gap: 40px; }
-
-    .tcard-grid {
-      display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-      gap: var(--gap-card);
-    }
-    .tcard-grid--compact { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
-
-    .tcard {
-      background: var(--paper-soft); border: 0.5px solid var(--paper-line);
-      border-radius: 18px; overflow: hidden; display: flex; flex-direction: column;
-      box-shadow: var(--shadow-1);
-      transition: transform .15s ease, box-shadow .15s ease, border-color .15s;
-    }
-    .tcard:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); border-color: var(--ink-faint); }
-    .tcard__map .route-map { width: 100%; height: 160px; display: block; }
-    .tcard--compact .tcard__map .route-map { height: 120px; }
-    .tcard__body { padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 12px; }
-    .tcard__top { display: flex; justify-content: space-between; align-items: center; }
-    .tcard__headline {
-      font-family: var(--font-serif); font-weight: 400; font-size: 1.5rem;
-      line-height: 1.2; letter-spacing: -0.01em; margin: 0; text-wrap: balance;
-    }
-    .tcard--compact .tcard__headline { font-size: 1.25rem; }
-    .tcard__meta { display: flex; flex-direction: column; gap: 2px; }
-    .tcard__meta > span:first-child { font-size: 0.85rem; color: var(--ink-soft); }
-    .tcard__sub { font-family: var(--font-mono); font-size: 0.75rem; color: var(--ink-faint); }
-    .tcard__note {
-      font-family: var(--font-serif); font-style: italic; color: var(--ink-soft);
-      font-size: 0.92rem; line-height: 1.4;
-      padding-top: 10px; border-top: 0.5px dashed var(--paper-line);
-    }
-    .tcard__flights { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
-    .tcard__flightrow {
-      appearance: none; border: 0.5px solid var(--paper-line); cursor: pointer;
-      background: var(--paper); border-radius: 8px; padding: 8px 12px;
-      display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center;
-      font: inherit; color: inherit; text-align: left;
-      transition: background .15s;
-    }
-    .tcard__flightrow:hover { background: var(--paper-deeper); }
-    .tcard__flightrow-lbl {
-      font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.08em;
-      text-transform: uppercase; color: var(--ink-faint);
-    }
-    .tcard__flightrow-flight { font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600; }
-    .tcard__flightrow-date { font-family: var(--font-mono); font-size: 0.75rem; color: var(--ink-soft); text-align: right; }
-    .tcard__flightrow--empty {
-      cursor: default; color: var(--ink-faint); font-style: italic;
-      font-family: var(--font-serif); font-size: 0.9rem; justify-content: center;
-      display: flex; padding: 8px 12px;
-    }
-
-    .homeroster { display: flex; flex-wrap: wrap; gap: 10px; }
-    .hr-chip {
-      display: flex; align-items: center; gap: 10px;
-      background: var(--paper-soft); border: 0.5px solid var(--paper-line);
-      border-radius: 999px; padding: 6px 16px 6px 6px;
-    }
-    .hr-chip__name { font-weight: 600; font-size: 0.9rem; }
-    .hr-chip__status { font-family: var(--font-mono); font-size: 0.68rem; color: var(--ink-faint); letter-spacing: 0.03em; }
-
     /* ── Calendar (agenda) ─────────────────────────────────────────────── */
     .cal { display: flex; flex-direction: column; gap: 28px; max-width: 880px; }
     .cal__head {
@@ -1170,7 +1114,6 @@
     }
     .dline--travel .dline__icon { color: var(--accent); transform: rotate(-15deg); }
     .dline--home .dline__icon { color: var(--sage); }
-    .dline--stay .dline__icon { color: var(--ink-faint); font-size: 1rem; line-height: 1.4; }
     .dline__text { display: inline; }
     .dline__name { font-family: var(--font-serif); font-style: italic; color: var(--ink); font-weight: 500; }
     .dline__verb { color: var(--ink-soft); }
@@ -1183,48 +1126,6 @@
       .dayrow__date { font-size: 1.4rem; }
       .dline { font-size: 1.05rem; gap: 10px; }
     }
-
-    /* ── Now panel (the glance view) ─────────────────────────────────────── */
-    .now { border: 1px solid var(--paper-line); background: var(--paper-soft); border-radius: 14px; overflow: hidden; }
-    .now__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 14px 18px 12px; border-bottom: 1px solid var(--paper-line); }
-    .now__title { display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); }
-    .now__live { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-faint); }
-    .now__live[data-on="1"] { background: var(--accent); box-shadow: 0 0 0 0 color-mix(in oklch, var(--accent), transparent 40%); animation: nowpulse 2s infinite; }
-    @keyframes nowpulse { 70% { box-shadow: 0 0 0 8px transparent } 100% { box-shadow: 0 0 0 0 transparent } }
-    .now__tally { font-family: var(--font-mono); font-size: 0.72rem; color: var(--ink-faint); letter-spacing: 0.02em; text-align: right; }
-    .now__quiet { padding: 26px 18px; font-family: var(--font-serif); font-style: italic; color: var(--ink-soft); }
-    .now__list { list-style: none; margin: 0; padding: 0; }
-    .nowrow { border-bottom: 1px solid var(--paper-line); position: relative; }
-    .nowrow[data-air="1"] { background: color-mix(in oklch, var(--accent), transparent 94%); }
-    .nowrow[data-soon="1"] .nowrow__val { color: var(--ink); }
-    .nowrow[data-soon="1"] .nowrow__dot { background: var(--ink-faint); animation: none; }
-    .nowrow__hit { width: 100%; background: none; border: 0; cursor: pointer; color: inherit; text-align: left; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px; padding: 12px 18px; font: inherit; min-height: 60px; }
-    .nowrow__hit:hover { background: color-mix(in oklch, var(--ink), transparent 96%); }
-    .nowrow__text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-    .nowrow__name { font-weight: 600; font-size: calc(1.02rem * var(--font-scale)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .nowrow__place { font-size: calc(0.9rem * var(--font-scale)); color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .nowrow__right { text-align: right; display: flex; flex-direction: column; gap: 2px; white-space: nowrap; }
-    .nowrow__val { font-family: var(--font-mono); font-size: calc(0.95rem * var(--font-scale)); font-weight: 600; display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end; }
-    .nowrow[data-air="1"] .nowrow__val { color: var(--accent); }
-    .nowrow__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: nowpulse 2s infinite; }
-    .nowrow__sub { font-family: var(--font-mono); font-size: 0.68rem; color: var(--ink-faint); letter-spacing: 0.02em; }
-    .nowrow__prog { display: block; height: 2px; background: var(--paper-line); }
-    .nowrow__prog > span { display: block; height: 100%; background: var(--accent); }
-    .nowrow__detail { padding: 0 18px 16px; display: flex; flex-direction: column; gap: 12px; }
-    .nowrow__map { border: 1px solid var(--paper-line); border-radius: 10px; overflow: hidden; }
-    .nowrow__legs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .nowrow__leg { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; background: var(--paper); border: 1px solid var(--paper-line); border-radius: 8px; padding: 10px 12px; font-family: var(--font-mono); font-size: 0.76rem; color: var(--ink-soft); cursor: pointer; text-align: left; }
-    .nowrow__leg strong { color: var(--ink); }
-    .nowrow__leg:hover { border-color: var(--accent); }
-    .nowrow__leg--empty { cursor: default; grid-template-columns: 1fr; color: var(--ink-faint); }
-    .nowrow__note { font-family: var(--font-serif); font-style: italic; color: var(--ink-soft); font-size: 0.95rem; }
-    .now__foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 12px 18px; }
-    .now__home { display: flex; align-items: center; gap: 10px; min-width: 0; }
-    .now__home-txt { font-size: 0.85rem; color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .now__next { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
-    .now__next li { display: flex; gap: 8px; font-family: var(--font-mono); font-size: 0.75rem; color: var(--ink-soft); justify-content: flex-end; }
-    .now__next-when { color: var(--accent); }
-    .now__next-more button { background: none; border: 0; padding: 0; font: inherit; color: var(--ink-faint); cursor: pointer; text-decoration: underline; }
 
     @media (max-width: 720px) {
       .topbar { grid-template-columns: 1fr auto; padding: 12px 16px; position: sticky; top: 0; z-index: 30; background: var(--paper); backdrop-filter: none; -webkit-backdrop-filter: none; }
@@ -1241,14 +1142,6 @@
          its own reserved space so the bar doesn't sit on top of it. */
       .footer { padding-bottom: calc(20px + 62px + env(safe-area-inset-bottom)); }
       .board { gap: 34px; }
-      .now { border-radius: 12px; }
-      .now__head { padding: 11px 14px 10px; }
-      .now__tally { font-size: 0.66rem; }
-      .nowrow__hit { padding: 11px 14px; gap: 11px; min-height: 58px; }
-      .nowrow__detail { padding: 0 14px 14px; }
-      .nowrow__legs { grid-template-columns: 1fr; }
-      .now__foot { flex-direction: column; align-items: stretch; gap: 10px; padding: 11px 14px; }
-      .now__next li { justify-content: flex-start; }
       .pfilter { padding: 10px 14px; gap: 6px; }
       .hero { padding: 24px 22px; }
       .fd__hero, .fd__statusdetail, .fd__note, .fd__details { padding-left: 22px; padding-right: 22px; }
@@ -1274,8 +1167,6 @@
   <script type="text/babel" src="components.jsx"></script>
   <script type="text/babel" src="modals.jsx"></script>
   <script type="text/babel" src="calendar.jsx"></script>
-  <script type="text/babel" src="trips.jsx"></script>
-  <script type="text/babel" src="now.jsx"></script>
   <!-- app last -->
   <script type="text/babel" src="app.jsx" data-presets="env,react"></script>
 </body>

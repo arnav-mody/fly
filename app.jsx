@@ -49,6 +49,7 @@ function App() {
   const [openFlight, setOpenFlight] = React.useState(null);
   const [addOpen, setAddOpen] = React.useState(false);
   const [editingFlight, setEditingFlight] = React.useState(null);
+  const [returnPrefill, setReturnPrefill] = React.useState(null);
   const [filterIds, setFilterIds] = React.useState([]);
 
   // Real flights, fetched from Supabase — merged alongside the curated demo
@@ -107,10 +108,20 @@ function App() {
 
       <main className="main">
         {view === "board" && (
-          <>
-            <NowView allFlights={allFlights} now={now} onOpenFlight={setOpenFlight} filterIds={filterIds} onSeeAll={() => setView("calendar")} />
-            <TripsHome allFlights={allFlights} now={now} onOpenFlight={setOpenFlight} filterIds={filterIds} upcomingOnly />
-          </>
+          <Board
+            buckets={{
+              airborne: f(byStatus.airborne),
+              boarding: f(byStatus.boarding),
+              scheduled: f(byStatus.scheduled),
+              landed: f(byStatus.landed),
+            }}
+            allFlights={allFlights}
+            now={now}
+            heroOn
+            onOpen={setOpenFlight}
+            onAdd={() => setAddOpen(true)}
+            onAddReturn={(flight) => setReturnPrefill({ from: flight.to, to: flight.from, travelers: flight.travelers, mode: flight.mode })}
+          />
         )}
         {view === "calendar" && (
           <CalendarView
@@ -131,14 +142,17 @@ function App() {
         flight={openFlight}
         onClose={() => setOpenFlight(null)}
         now={now}
+        allFlights={allFlights}
         onEdit={(f) => { setOpenFlight(null); setEditingFlight(f); }}
         onDeleted={refreshFlights}
+        onAddReturn={(f) => { setOpenFlight(null); setReturnPrefill({ from: f.to, to: f.from, travelers: f.travelers, mode: f.mode }); }}
       />
       <AddTripModal
-        open={addOpen || !!editingFlight}
-        onClose={() => { setAddOpen(false); setEditingFlight(null); }}
+        open={addOpen || !!editingFlight || !!returnPrefill}
+        onClose={() => { setAddOpen(false); setEditingFlight(null); setReturnPrefill(null); }}
         onSubmit={handleSubmit}
         editing={editingFlight}
+        prefill={returnPrefill}
       />
 
       <TweaksPanel title="Tweaks">
@@ -261,7 +275,7 @@ function PeopleFilter({ ids, onChange }) {
 }
 
 // ── Board ───────────────────────────────────────────────────────────────────
-function Board({ buckets, now, heroOn, onOpen, onAdd }) {
+function Board({ buckets, now, heroOn, onOpen, onAdd, allFlights, onAddReturn }) {
   const airborne = buckets.airborne;
   const showAirborneHero = heroOn && airborne.length > 0;
   const showBoardingHero = heroOn && airborne.length === 0 && buckets.boarding.length > 0;
@@ -290,7 +304,7 @@ function Board({ buckets, now, heroOn, onOpen, onAdd }) {
           />
           <div className="rail__grid">
             {remainingBoarding.map((f) => (
-              <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} />
+              <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} />
             ))}
           </div>
         </section>
@@ -324,7 +338,7 @@ function Board({ buckets, now, heroOn, onOpen, onAdd }) {
         <section className="rail rail--landed">
           <SectionHead kicker="Welcome home" title="Just landed" count={buckets.landed.length} />
           <div className="rail__grid">
-            {buckets.landed.map((f) => <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} />)}
+            {buckets.landed.map((f) => <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} />)}
           </div>
         </section>
       )}
@@ -385,7 +399,7 @@ function HeroAirborneTile({ flight, now, onOpen }) {
   return (
     <article className="htile" onClick={() => onOpen(flight)}>
       <div className="htile__map">
-        {isFlight
+        {isFlight && hasCoords(from, to)
           ? <RouteMap from={from} to={to} progress={flight.progress ?? 0} status="airborne" height={200} />
           : <div className="tcard__mode-block" style={{ height: 200 }}>{modeMeta(flight).icon}</div>}
         <span className="htile__chip">{isFlight ? "In the air" : "Traveling"}</span>
@@ -479,7 +493,7 @@ function HeroAirborne({ flight, now, onOpen }) {
           </button>
         </div>
         <div className="hero__right">
-          {isFlight
+          {isFlight && hasCoords(from, to)
             ? <RouteMap from={from} to={to} progress={flight.progress ?? 0} status="airborne" height={360} />
             : <div className="tcard__mode-block" style={{ height: 360 }}>{modeMeta(flight).icon}</div>}
         </div>
@@ -496,6 +510,7 @@ function HeroAirborne({ flight, now, onOpen }) {
 
 // ── HeroBoarding (shown when nobody's airborne, but someone's leaving soon) ──
 function HeroBoarding({ flight, now, onOpen }) {
+  const isFlight = modeOf(flight) === "flight";
   const from = { ...airport(flight.from), code: flight.from };
   const to   = { ...airport(flight.to),   code: flight.to };
   const travelers = flight.travelers.map(familyById).filter(Boolean);
@@ -518,14 +533,17 @@ function HeroBoarding({ flight, now, onOpen }) {
           </h1>
           <Countdown target={flight.depart} dramatic now={now} />
           <p className="hero__sub">
-            {flight.airline}{flight.number} · {from.city} ({flight.from}) → {to.city} ({flight.to}) · {fmtTime(flight.depart)} {from.tz}
+            {isFlight ? <>{flight.airline}{flight.number} · </> : <>{modeMeta(flight).icon} {modeMeta(flight).label} · </>}
+            {from.city} ({flight.from}) → {to.city} ({flight.to}) · {fmtTime(flight.depart)} {from.tz}
           </p>
           <button className="hero__more" onClick={() => onOpen(flight)}>
             Open flight details →
           </button>
         </div>
         <div className="hero__right">
-          <RouteMap from={from} to={to} progress={0} status="scheduled" height={360} />
+          {isFlight && hasCoords(from, to)
+            ? <RouteMap from={from} to={to} progress={0} status="scheduled" height={360} />
+            : <div className="tcard__mode-block" style={{ height: 360 }}>{modeMeta(flight).icon}</div>}
         </div>
       </div>
     </section>

@@ -2,44 +2,11 @@
 //
 // Earlier version had a month grid, color chips, and a Gantt — too busy.
 // This version is just an agenda: one day per row, plain text lines like
-// "Aarav flies to Delhi" and "Meera in Phoenix". Anything else gets in the
-// way of the one thing he wants to know — who is where, when.
-
-// ── away-segment builder ────────────────────────────────────────────────────
-// For each person, walk their upcoming flights in order. Every time they land
-// somewhere ≠ home, they're "in" that city until the next flight departs
-// (or 14 days, if no return is on file yet).
-function buildAwaySegments(allFlights) {
-  const byPerson = {};
-  for (const f of allFlights) {
-    for (const pid of f.travelers) (byPerson[pid] = byPerson[pid] || []).push(f);
-  }
-  const ASSUMED_STAY = 14 * 24 * 60 * 60 * 1000;
-  const segments = [];
-  for (const pid of Object.keys(byPerson)) {
-    const person = window.MGData.familyById(pid);
-    if (!person) continue;
-    const home = person.homeAirport;
-    const list = [...byPerson[pid]].sort((a, b) => a.depart - b.depart);
-    for (let i = 0; i < list.length; i++) {
-      const f = list[i];
-      const next = list[i + 1];
-      if (f.to !== home) {
-        const start = f.arrive;
-        const end = next ? next.depart : new Date(f.arrive.getTime() + ASSUMED_STAY);
-        segments.push({
-          personId: pid,
-          location: f.to,
-          locationCity: window.MGData.airport(f.to)?.city ?? f.to,
-          start, end,
-          assumed: !next,
-          originFlightId: f.id,
-        });
-      }
-    }
-  }
-  return segments;
-}
+// "Aarav flies to Delhi". Deliberately factual only — no inference about
+// where someone "is" on days between flights (that used to exist as a
+// "stay" concept and was often just wrong, especially for multi-city trips
+// or when a return leg was never logged). Every line here corresponds to
+// an actual logged flight event: it departed, or it arrived.
 
 // ── date helpers ────────────────────────────────────────────────────────────
 function startOfMonth(d) { return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)); }
@@ -55,19 +22,17 @@ function dayBounds(d) {
   return [Date.UTC(y, m, dd, 0, 0, 0), Date.UTC(y, m, dd, 23, 59, 59)];
 }
 
-// Build the agenda rows for the cursor's month.
-// Each day in the month gets either an empty entry (skipped) or a list of
-// human-readable events. We collapse multi-traveler same-flight events into
-// one line ("Priya & Raj fly to London") and skip stay-events on days where
-// the person is also flying (the flight line already implies they're there).
-function buildAgenda(cursor, flights, segments) {
+// Build the agenda rows for the cursor's month. Each day gets a departure
+// line per flight leaving that day, and an arrival line per traveler
+// landing that day — both read straight off logged flight data, nothing
+// inferred in between.
+function buildAgenda(cursor, flights) {
   const total = daysInMonth(cursor);
   const out = [];
   for (let i = 0; i < total; i++) {
     const d = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), i + 1));
     const [dStart, dEnd] = dayBounds(d);
 
-    // Travel events — flights departing this day. Grouped per flight.
     const travel = flights
       .filter((f) => f.depart.getTime() >= dStart && f.depart.getTime() <= dEnd)
       .map((f) => ({
@@ -78,32 +43,15 @@ function buildAgenda(cursor, flights, segments) {
         nextDay: !sameUTCDay(f.depart, f.arrive),
       }));
 
-    // Returns home — flights ARRIVING today at a traveler's home airport.
-    const returnsHome = flights
+    const arrivals = flights
       .filter((f) => f.arrive.getTime() >= dStart && f.arrive.getTime() <= dEnd)
-      .flatMap((f) => f.travelers
-        .map((pid) => ({ pid, home: window.MGData.familyById(pid)?.homeAirport }))
-        .filter(({ home }) => home === f.to)
-        // skip "returns home" if there's no away-period preceding it (i.e.
-        // they were just at the from-airport for transit — unlikely here)
-        .map(({ pid }) => ({ kind: "home", personId: pid, flight: f }))
-      );
+      .flatMap((f) => f.travelers.map((pid) => ({
+        kind: "arrive", personId: pid, flight: f,
+        isHome: window.MGData.familyById(pid)?.homeAirport === f.to,
+      })));
 
-    // People IDs who are traveling/returning today — used to dedupe stays.
-    const travelingToday = new Set();
-    for (const t of travel) for (const pid of t.travelers) travelingToday.add(pid);
-    for (const r of returnsHome) travelingToday.add(r.personId);
-
-    // Stay events — person is in a non-home city today, but not on a flight.
-    const stays = segments
-      .filter((s) => s.start.getTime() < dEnd && s.end.getTime() > dStart)
-      .filter((s) => !travelingToday.has(s.personId))
-      // dedupe by person — same person can only have one stay per day
-      .filter((s, i, arr) => arr.findIndex((x) => x.personId === s.personId) === i)
-      .map((s) => ({ kind: "stay", personId: s.personId, location: s.location, locationCity: s.locationCity, assumed: s.assumed }));
-
-    if (travel.length || returnsHome.length || stays.length) {
-      out.push({ date: d, travel, returnsHome, stays });
+    if (travel.length || arrivals.length) {
+      out.push({ date: d, travel, arrivals });
     }
   }
   return out;
@@ -117,8 +65,7 @@ function CalendarView({ flights, now, onOpen, filterIds = [] }) {
     () => filterIds.length ? flights.filter((f) => f.travelers.some((id) => filterIds.includes(id))) : flights,
     [flights, filterIds]
   );
-  const segments = React.useMemo(() => buildAwaySegments(visibleFlights), [visibleFlights]);
-  const agenda   = React.useMemo(() => buildAgenda(cursor, visibleFlights, segments), [cursor, visibleFlights, segments]);
+  const agenda = React.useMemo(() => buildAgenda(cursor, visibleFlights), [cursor, visibleFlights]);
 
   const monthLabel = cursor.toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
   const isThisMonth = cursor.getUTCMonth() === now.getUTCMonth() && cursor.getUTCFullYear() === now.getUTCFullYear();
@@ -132,7 +79,7 @@ function CalendarView({ flights, now, onOpen, filterIds = [] }) {
         <SectionHead
           kicker="At a glance"
           title="Who's where, when"
-          sub="Every takeoff, landing, and day away from home — the family's whole story, one month at a time. Step back with ‹ for the old chapters."
+          sub="Every takeoff and landing the family's logged, one month at a time. Step back with ‹ for the old chapters."
         />
         <div className="cal__nav">
           <button className="cal__nav-btn" onClick={() => setCursor(addMonths(cursor, -1))} aria-label="Previous month">‹</button>
@@ -177,8 +124,7 @@ function DayRow({ day, now, isToday, onOpen, innerRef }) {
       </div>
       <div className="dayrow__events">
         {day.travel.map((t) => <TravelLine key={"t-" + t.flight.id} event={t} onOpen={onOpen} />)}
-        {day.returnsHome.map((r) => <HomeLine key={"h-" + r.personId + "-" + r.flight.id} event={r} onOpen={onOpen} />)}
-        {day.stays.map((s) => <StayLine key={"s-" + s.personId} event={s} />)}
+        {day.arrivals.map((a) => <ArriveLine key={"a-" + a.personId + "-" + a.flight.id} event={a} onOpen={onOpen} />)}
       </div>
     </div>
   );
@@ -208,39 +154,24 @@ function TravelLine({ event, onOpen }) {
   );
 }
 
-// A "stay" line — "Meera in Phoenix" (for days when person is away but not flying).
-function StayLine({ event }) {
+// An "arrival" line — "Aarav arrives in Delhi" (or "back home" when the
+// destination matches the traveler's home airport). Purely factual: this is
+// exactly what the flight's arrival airport says, nothing inferred about
+// what happens after.
+function ArriveLine({ event, onOpen }) {
   const p = window.MGData.familyById(event.personId);
   if (!p) return null;
-  return (
-    <div className="dline dline--stay">
-      <span className="dline__icon" aria-hidden="true">•</span>
-      <span className="dline__text">
-        <span className="dline__name">{p.first}</span>
-        <span className="dline__verb"> in </span>
-        <span className="dline__place">{event.locationCity}</span>
-        {event.assumed && <span className="dline__meta"> · return not booked yet</span>}
-      </span>
-    </div>
-  );
-}
-
-// A "returns home" line — distinguishes "Aarav lands home in New York" from
-// a regular travel day, because Dadaji will want to know when people are
-// back safely.
-function HomeLine({ event, onOpen }) {
-  const p = window.MGData.familyById(event.personId);
-  if (!p) return null;
+  const toCity = window.MGData.airport(event.flight.to)?.city ?? event.flight.to;
   return (
     <button className="dline dline--home" onClick={() => onOpen(event.flight)}>
-      <span className="dline__icon" aria-hidden="true">⌂</span>
+      <span className="dline__icon" aria-hidden="true">{event.isHome ? "⌂" : "🛬"}</span>
       <span className="dline__text">
         <span className="dline__name">{p.first}</span>
-        <span className="dline__verb"> back home in </span>
-        <span className="dline__place">{p.home}</span>
+        <span className="dline__verb">{event.isHome ? " back home in " : " arrives in "}</span>
+        <span className="dline__place">{toCity}</span>
       </span>
     </button>
   );
 }
 
-Object.assign(window, { CalendarView, buildAwaySegments });
+Object.assign(window, { CalendarView });

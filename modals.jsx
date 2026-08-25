@@ -9,6 +9,8 @@ const _flightAwareUrl = window.MGData.flightAwareUrl;
 const _modeOf   = window.MGData.modeOf;
 const _modeMeta = window.MGData.modeMeta;
 const _MODE     = window.MGData.MODE_META;
+const _hasLoggedReturn = window.MGData.hasLoggedReturn;
+const _hasCoords = window.MGData.hasCoords;
 
 // supabase-js only exposes a generic "Edge Function returned a non-2xx
 // status code" on failure — it doesn't parse the response body for you. The
@@ -106,7 +108,7 @@ function Modal({ open, onClose, children, size = "lg" }) {
 }
 
 // ── FlightDetail ────────────────────────────────────────────────────────────
-function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted }) {
+function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights, onAddReturn }) {
   const [deleting, setDeleting] = React.useState(false);
   const [deleteError, setDeleteError] = React.useState(null);
   React.useEffect(() => { setDeleting(false); setDeleteError(null); }, [flight?.id]);
@@ -120,6 +122,7 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted }) {
   const from     = { ..._airport(flight.from), code: flight.from };
   const to       = { ..._airport(flight.to),   code: flight.to };
   const travelers = flight.travelers.map(_familyById).filter(Boolean);
+  const noReturn = (status === "landed" || status === "past") && allFlights && !_hasLoggedReturn(flight, allFlights);
 
   const handleDelete = () => {
     if (!window.confirm(`Delete this trip (${flight.from} → ${flight.to})? This can't be undone.`)) return;
@@ -171,7 +174,7 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted }) {
               </span>
             </h1>
             <div className="fd__map">
-              {isFlight
+              {isFlight && _hasCoords(from, to)
                 ? <RouteMap from={from} to={to} progress={flight.progress ?? 0} status={status} height={280} />
                 : <div className="tcard__mode-block" style={{ height: 280 }}>{meta.icon}</div>}
             </div>
@@ -220,6 +223,11 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted }) {
         <div className="fd__details">
           <h3 className="fd__h">Itinerary</h3>
           <BoardingPassStrip flight={flight} />
+          {noReturn && (
+            <button className="card__no-return fd__no-return" onClick={() => onAddReturn(flight)}>
+              Return not logged — click to add
+            </button>
+          )}
           {isFlight && (
             <>
               <div className="fd__grid">
@@ -310,6 +318,7 @@ function DetailField({ label, value, mono }) {
 const EMPTY_TRIP_FORM = {
   travelers: [], airline: "", number: "",
   from: "", to: "", date: "", departTime: "", arriveTime: "", note: "",
+  returnDate: "", returnDepartTime: "", returnArriveTime: "",
 };
 
 // Loose name match against the family roster, used to auto-check a traveler
@@ -341,9 +350,27 @@ function dateToFormFields(d) {
   };
 }
 
-function AddTripModal({ open, onClose, onSubmit, editing }) {
+// Combobox display: a known airport shows as "City (CODE)" so the code is
+// context, not the thing you have to know — free-typed cities or codes we
+// don't recognize just pass through unchanged. placeCode reverses it back
+// to a bare code at submit time (or passes the text through as-is for
+// anything that was never a recognized airport, matching how the backend
+// already accepts a free-text place for those).
+function placeDisplay(value) {
+  if (!value) return "";
+  const a = _AP[String(value).toUpperCase()];
+  return a ? `${a.city} (${value.toUpperCase()})` : value;
+}
+function placeCode(value) {
+  if (!value) return value;
+  const m = String(value).trim().match(/\(([A-Za-z0-9]{2,4})\)\s*$/);
+  return m ? m[1].toUpperCase() : value.trim();
+}
+
+function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
   const [mode, setMode] = React.useState("flight");     // "flight" | "train" | "car"
   const [form, setForm] = React.useState(EMPTY_TRIP_FORM);
+  const [roundTrip, setRoundTrip] = React.useState(false); // create-flow only — logs both legs at once
 
   // Paste/type box — flight mode only, real AI parsing via parse-flight
   // (text instead of image).
@@ -374,31 +401,41 @@ function AddTripModal({ open, onClose, onSubmit, editing }) {
         travelers: editing.travelers || [],
         airline: editing.airline || "",
         number: editing.number || "",
-        from: editing.from || "",
-        to: editing.to || "",
+        from: placeDisplay(editing.from),
+        to: placeDisplay(editing.to),
         date: dep.date,
         departTime: dep.time,
         arriveTime: arr.time,
         note: editing.note || "",
       });
+    } else if (open && prefill) {
+      // Seeded from "Return not logged → click to add" — a fresh entry, not
+      // an edit, so it still submits as a normal new flight.
+      setMode(prefill.mode || "flight");
+      setForm({
+        ...EMPTY_TRIP_FORM,
+        from: placeDisplay(prefill.from) || "",
+        to: placeDisplay(prefill.to) || "",
+        travelers: prefill.travelers || [],
+      });
     } else if (!open) {
       // reset on close
       setTimeout(() => {
-        setMode("flight"); setForm(EMPTY_TRIP_FORM);
+        setMode("flight"); setForm(EMPTY_TRIP_FORM); setRoundTrip(false);
         setPasteOpen(false); setPasteText(""); setParsingText(false); setTextParsed(null); setTextError(null);
         setUploading(false); setUploadParsed(null); setUploadError(null); setImagePath(null);
         setSaving(false); setSubmitError(null);
       }, 200);
     }
-  }, [open, editing]);
+  }, [open, editing, prefill]);
 
   const applyParsed = (p) => {
     setForm((f) => ({
       ...f,
       airline: (p.airline_code || f.airline || "").toUpperCase(),
       number: p.flight_number || f.number,
-      from: (p.from_airport || f.from || "").toUpperCase(),
-      to: (p.to_airport || f.to || "").toUpperCase(),
+      from: p.from_airport ? placeDisplay(p.from_airport) : f.from,
+      to: p.to_airport ? placeDisplay(p.to_airport) : f.to,
       date: p.date || f.date,
       departTime: p.depart_time || f.departTime,
       arriveTime: p.arrive_time || f.arriveTime,
@@ -417,12 +454,17 @@ function AddTripModal({ open, onClose, onSubmit, editing }) {
 
   const submit = () => {
     const isFlight = mode === "flight";
+    const doRoundTrip = roundTrip && !editing;
     const missing = [];
     if (!form.from) missing.push("where from");
     if (!form.to) missing.push("where to");
     if (!form.date) missing.push("the date");
     if (!form.departTime) missing.push("a departure time");
     if (!form.travelers.length) missing.push("who's traveling");
+    if (doRoundTrip) {
+      if (!form.returnDate) missing.push("the return date");
+      if (!form.returnDepartTime) missing.push("a return departure time");
+    }
     if (missing.length) {
       setSubmitError(`Still need: ${missing.join(", ")}.`);
       return;
@@ -437,40 +479,80 @@ function AddTripModal({ open, onClose, onSubmit, editing }) {
     // Wrapping it means any such bug still shows an error instead of
     // hanging.
     try {
+      const fromCode = placeCode(form.from), toCode = placeCode(form.to);
       const departAt = new Date(`${form.date}T${form.departTime}:00Z`);
       // Arrival is optional (mainly for train/car, where it's often not known
       // upfront) — default to 2 hours out so status still has a valid window.
       const arriveAt = form.arriveTime
         ? new Date(`${form.date}T${form.arriveTime}:00Z`)
         : new Date(departAt.getTime() + 2 * 60 * 60 * 1000);
-      withTimeout(window.supabaseClient.functions.invoke("save-flight", {
-        body: {
-          flightId: editing ? editing.id : undefined,
-          mode,
-          airline_code: isFlight ? (form.airline || null) : null,
-          flight_number: isFlight ? (form.number || null) : null,
-          from_airport: form.from,
-          to_airport: form.to,
-          depart_at: departAt.toISOString(),
-          arrive_at: arriveAt.toISOString(),
-          note: form.note || null,
-          source: editing ? "edit" : (imagePath ? "upload" : (textParsed ? "paste" : "manual")),
-          imagePath: imagePath || null,
-          travelerIds: form.travelers,
-        },
-      }), 20000, "Saving").then(async ({ data, error }) => {
-        setSaving(false);
-        if (error || !data || !data.ok) {
-          const message = (data && data.error) || await readFunctionError(error) || "Couldn't save this trip — mind trying again?";
-          setSubmitError(message);
-          return;
-        }
-        onSubmit(data.flight);
-        onClose();
-      }).catch((err) => {
-        setSaving(false);
-        setSubmitError(String((err && err.message) || err));
-      });
+
+      const outboundBody = {
+        flightId: editing ? editing.id : undefined,
+        mode,
+        airline_code: isFlight ? (form.airline || null) : null,
+        flight_number: isFlight ? (form.number || null) : null,
+        from_airport: fromCode,
+        to_airport: toCode,
+        depart_at: departAt.toISOString(),
+        arrive_at: arriveAt.toISOString(),
+        note: form.note || null,
+        source: editing ? "edit" : (imagePath ? "upload" : (textParsed ? "paste" : "manual")),
+        imagePath: imagePath || null,
+        travelerIds: form.travelers,
+      };
+
+      withTimeout(window.supabaseClient.functions.invoke("save-flight", { body: outboundBody }), 20000, "Saving")
+        .then(async ({ data, error }) => {
+          if (error || !data || !data.ok) {
+            setSaving(false);
+            const message = (data && data.error) || await readFunctionError(error) || "Couldn't save this trip — mind trying again?";
+            setSubmitError(message);
+            return;
+          }
+          if (!doRoundTrip) {
+            setSaving(false);
+            onSubmit(data.flight);
+            onClose();
+            return;
+          }
+
+          // Round trip — the outbound saved, now log the return leg too
+          // (same travelers/mode, route reversed).
+          const retDepartAt = new Date(`${form.returnDate}T${form.returnDepartTime}:00Z`);
+          const retArriveAt = form.returnArriveTime
+            ? new Date(`${form.returnDate}T${form.returnArriveTime}:00Z`)
+            : new Date(retDepartAt.getTime() + 2 * 60 * 60 * 1000);
+          withTimeout(window.supabaseClient.functions.invoke("save-flight", {
+            body: {
+              mode,
+              from_airport: toCode,
+              to_airport: fromCode,
+              depart_at: retDepartAt.toISOString(),
+              arrive_at: retArriveAt.toISOString(),
+              note: form.note || null,
+              source: "manual",
+              travelerIds: form.travelers,
+            },
+          }), 20000, "Saving return leg").then(async ({ data: retData, error: retError }) => {
+            setSaving(false);
+            if (retError || !retData || !retData.ok) {
+              const message = (retData && retData.error) || await readFunctionError(retError) || "something went wrong";
+              onSubmit(data.flight); // outbound did save — refresh the board so it shows
+              setSubmitError(`Outbound saved, but the return leg didn't: ${message}. You can add it separately from the flight's card.`);
+              return;
+            }
+            onSubmit(data.flight);
+            onClose();
+          }).catch((err) => {
+            setSaving(false);
+            onSubmit(data.flight);
+            setSubmitError(`Outbound saved, but the return leg didn't: ${String((err && err.message) || err)}`);
+          });
+        }).catch((err) => {
+          setSaving(false);
+          setSubmitError(String((err && err.message) || err));
+        });
     } catch (err) {
       setSaving(false);
       setSubmitError(String((err && err.message) || err));
@@ -674,28 +756,26 @@ function AddTripModal({ open, onClose, onSubmit, editing }) {
               </div>
               <div className="at__row">
                 <label className="at__field">
-                  <span>From (airport or city)</span>
+                  <span>From (city or airport — code optional)</span>
                   <input
                     list="at-airport-list"
                     value={form.from}
                     onChange={(e) => setForm({ ...form, from: e.target.value })}
-                    onBlur={(e) => setForm((f) => ({ ...f, from: e.target.value.length <= 3 ? e.target.value.toUpperCase() : e.target.value }))}
-                    placeholder="SFO or San Francisco"
+                    placeholder="San Francisco"
                   />
                 </label>
                 <label className="at__field">
-                  <span>To (airport or city)</span>
+                  <span>To (city or airport — code optional)</span>
                   <input
                     list="at-airport-list"
                     value={form.to}
                     onChange={(e) => setForm({ ...form, to: e.target.value })}
-                    onBlur={(e) => setForm((f) => ({ ...f, to: e.target.value.length <= 3 ? e.target.value.toUpperCase() : e.target.value }))}
-                    placeholder="LHR or London"
+                    placeholder="London"
                   />
                 </label>
                 <datalist id="at-airport-list">
                   {Object.entries(_AP).map(([code, a]) => (
-                    <option key={code} value={code}>{code} — {a.city}, {a.country}</option>
+                    <option key={code} value={`${a.city} (${code})`}>{a.city}, {a.country}</option>
                   ))}
                 </datalist>
               </div>
@@ -727,7 +807,32 @@ function AddTripModal({ open, onClose, onSubmit, editing }) {
               <input type="time" value={form.arriveTime} onChange={(e) => setForm({ ...form, arriveTime: e.target.value })} />
             </label>
           </div>
-          <div className="at__hint">Times are local — enter whatever's printed on the ticket.</div>
+          <div className="at__hint">Local time at departure/arrival — enter exactly what's printed on the ticket.</div>
+
+          {!editing && (
+            <label className="at__checkbox">
+              <input type="checkbox" checked={roundTrip} onChange={(e) => setRoundTrip(e.target.checked)} />
+              <span>This is a round trip — log the return leg too</span>
+            </label>
+          )}
+          {roundTrip && !editing && (
+            <>
+              <label className="at__field at__field--full">
+                <span>Return date</span>
+                <input type="date" value={form.returnDate} onChange={(e) => setForm({ ...form, returnDate: e.target.value })} />
+              </label>
+              <div className="at__row at__row--times">
+                <label className="at__field">
+                  <span>Return depart</span>
+                  <input type="time" value={form.returnDepartTime} onChange={(e) => setForm({ ...form, returnDepartTime: e.target.value })} />
+                </label>
+                <label className="at__field">
+                  <span>Return arrive{mode !== "flight" ? " (optional)" : ""}</span>
+                  <input type="time" value={form.returnArriveTime} onChange={(e) => setForm({ ...form, returnArriveTime: e.target.value })} />
+                </label>
+              </div>
+            </>
+          )}
 
           <div className="at__field at__field--full">
             <span>Who's traveling?</span>

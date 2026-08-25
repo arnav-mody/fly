@@ -14,7 +14,7 @@ function fmtTime(d) {
   return pad2(d.getUTCHours()) + ":" + pad2(d.getUTCMinutes());
 }
 function fmtDateShort(d) {
-  return d.toLocaleString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  return d.toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 }
 function fmtDateLong(d) {
   return d.toLocaleString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" });
@@ -225,13 +225,14 @@ function BoardingPassStrip({ flight, dense = false }) {
 // ── FlightCard ──────────────────────────────────────────────────────────────
 // The everyday card — appears in "Taking off soon", "This week", "Just landed"
 // rails. Click → opens the flight detail modal.
-function FlightCard({ flight, onOpen, now, accent }) {
+function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn }) {
   const status = flightStatus(flight, now);
   const mode = modeOf(flight);
   const isFlight = mode === "flight";
   const from = { ...airport(flight.from), code: flight.from };
   const to   = { ...airport(flight.to),   code: flight.to };
   const travelers = flight.travelers.map(familyById).filter(Boolean);
+  const noReturn = status === "landed" && allFlights && !hasLoggedReturn(flight, allFlights);
 
   // Lead text varies by status — Grandpa cares about the moment of takeoff
   // and the moment of landing more than the abstract route.
@@ -303,6 +304,11 @@ function FlightCard({ flight, onOpen, now, accent }) {
       <BoardingPassStrip flight={flight} dense />
       {flight.note && travelers.length === 1 && (
         <div className="card__note">"{flight.note.length > 80 ? flight.note.slice(0, 80) + "…" : flight.note}"</div>
+      )}
+      {noReturn && (
+        <button className="card__no-return" onClick={(e) => { e.stopPropagation(); onAddReturn(flight); }}>
+          Return not logged — click to add
+        </button>
       )}
       {isFlight && (
         <a
