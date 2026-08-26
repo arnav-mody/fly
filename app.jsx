@@ -396,6 +396,34 @@ function Board({ buckets, journeyBuckets, roundTripItems, now, heroOn, onOpen, o
   // separate section for it.
   const upcomingCount = remainingBoarding.length + buckets.scheduled.length + jb.boarding.length + jb.scheduled.length + rt.length;
 
+  // Every section mixes solo flights, journeys, and (for Upcoming) round-trip
+  // pairs — each of those lists was already sorted on its own, but simply
+  // rendering them one after another isn't chronological order overall (a
+  // journey departing next week could render before a solo flight departing
+  // tomorrow, just because journeys are a separate list). Merge each
+  // section's items into one list and sort by the same real-time basis
+  // before rendering, so the board reads top-to-bottom in actual time order.
+  const airborneItems = [
+    ...airborne.map((f) => ({ type: "flight", key: f.id, sortTime: flightRealArrive(f), flight: f })),
+    ...jb.airborne.map((item) => {
+      const leg = item.legs.find((l) => flightStatus(l, now) === "airborne") || item.legs[item.legs.length - 1];
+      return { type: "journey", key: item.id, sortTime: flightRealArrive(leg), item };
+    }),
+  ].sort((a, b) => a.sortTime - b.sortTime); // soonest to land first
+
+  const landedItems = [
+    ...buckets.landed.map((f) => ({ type: "flight", key: f.id, sortTime: flightRealArrive(f), flight: f })),
+    ...jb.landed.map((item) => ({ type: "journey", key: item.id, sortTime: flightRealArrive(item.legs[item.legs.length - 1]), item })),
+  ].sort((a, b) => b.sortTime - a.sortTime); // most recently landed first
+
+  const upcomingItems = [
+    ...remainingBoarding.map((f) => ({ type: "flight", key: f.id, sortTime: flightRealDepart(f), flight: f })),
+    ...jb.boarding.map((item) => ({ type: "journey", key: item.id, sortTime: flightRealDepart(item.legs[0]), item })),
+    ...buckets.scheduled.map((f) => ({ type: "flight", key: f.id, sortTime: flightRealDepart(f), flight: f })),
+    ...jb.scheduled.map((item) => ({ type: "journey", key: item.id, sortTime: flightRealDepart(item.legs[0]), item })),
+    ...rt.map((item) => ({ type: "roundtrip", key: item.id, sortTime: flightRealDepart(item.outbound), item })),
+  ].sort((a, b) => a.sortTime - b.sortTime); // soonest departure first
+
   return (
     <div className="board" data-screen-label="01 Board">
       {showBoardingHero && (
@@ -412,8 +440,10 @@ function Board({ buckets, journeyBuckets, roundTripItems, now, heroOn, onOpen, o
             </div>
           )}
           <div className="rail__grid">
-            {airborne.map((f) => <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} />)}
-            {jb.airborne.map((item) => <JourneyCard key={item.id} item={item} onOpen={onOpen} now={now} />)}
+            {airborneItems.map((u) => u.type === "flight"
+              ? <FlightCard key={u.key} flight={u.flight} onOpen={onOpen} now={now} />
+              : <JourneyCard key={u.key} item={u.item} onOpen={onOpen} now={now} />
+            )}
           </div>
         </section>
       )}
@@ -425,8 +455,10 @@ function Board({ buckets, journeyBuckets, roundTripItems, now, heroOn, onOpen, o
         <section className="rail rail--landed">
           <SectionHead kicker="Last 8 hours" title="Just landed" count={buckets.landed.length + jb.landed.length} />
           <div className="rail__grid">
-            {buckets.landed.map((f) => <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} onLinkConnection={onLinkConnection} onDismissReturn={onDismissReturn} />)}
-            {jb.landed.map((item) => <JourneyCard key={item.id} item={item} onOpen={onOpen} now={now} />)}
+            {landedItems.map((u) => u.type === "flight"
+              ? <FlightCard key={u.key} flight={u.flight} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} onLinkConnection={onLinkConnection} onDismissReturn={onDismissReturn} />
+              : <JourneyCard key={u.key} item={u.item} onOpen={onOpen} now={now} />
+            )}
           </div>
         </section>
       )}
@@ -438,13 +470,15 @@ function Board({ buckets, journeyBuckets, roundTripItems, now, heroOn, onOpen, o
           ? <EmptyRow text="No upcoming trips. Tell the family to start planning something!" />
           : (
             <div className="rail__grid">
-              {remainingBoarding.map((f) => (
-                <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} onLinkConnection={onLinkConnection} onDismissReturn={onDismissReturn} />
-              ))}
-              {jb.boarding.map((item) => <JourneyCard key={item.id} item={item} onOpen={onOpen} now={now} />)}
-              {buckets.scheduled.map((f) => <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} onLinkConnection={onLinkConnection} onDismissReturn={onDismissReturn} />)}
-              {jb.scheduled.map((item) => <JourneyCard key={item.id} item={item} onOpen={onOpen} now={now} />)}
-              {rt.map((item) => <RoundTripCard key={item.id} item={item} onOpen={onOpen} now={now} />)}
+              {upcomingItems.map((u) => {
+                if (u.type === "flight") {
+                  return <FlightCard key={u.key} flight={u.flight} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} onLinkConnection={onLinkConnection} onDismissReturn={onDismissReturn} />;
+                }
+                if (u.type === "roundtrip") {
+                  return <RoundTripCard key={u.key} item={u.item} onOpen={onOpen} now={now} />;
+                }
+                return <JourneyCard key={u.key} item={u.item} onOpen={onOpen} now={now} />;
+              })}
             </div>
           )
         }
