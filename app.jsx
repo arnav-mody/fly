@@ -95,10 +95,18 @@ function App() {
 
   // Group legs sharing a journeyId into one journey item — everything else
   // (including a journeyId whose only partner got deleted) stays solo. See
-  // buildJourneys in data.js.
-  const boardItems = React.useMemo(() => window.MGData.buildJourneys(allFlights), [allFlights]);
+  // buildJourneys in data.js. Then, separately, pair up an outbound/return
+  // that are both still upcoming into one roundtrip item (see
+  // pairRoundTrips) — round-trip legs aren't linked by any id the way a
+  // connecting journey's are, so this re-derives the pairing every render
+  // rather than depending on how the trip was originally logged.
+  const boardItems = React.useMemo(
+    () => window.MGData.pairRoundTrips(window.MGData.buildJourneys(allFlights), now),
+    [allFlights, now]
+  );
   const soloFlights = React.useMemo(() => boardItems.filter((i) => i.kind === "solo").map((i) => i.flight), [boardItems]);
   const journeyItems = React.useMemo(() => boardItems.filter((i) => i.kind === "journey"), [boardItems]);
+  const roundTripItems = React.useMemo(() => boardItems.filter((i) => i.kind === "roundtrip"), [boardItems]);
 
   // Bucket solo flights by status — unchanged from before journeys existed;
   // this is what the hero sections key off of. Journeys don't get the big
@@ -138,6 +146,7 @@ function App() {
   // Person filter — applied across all buckets.
   const f = (list) => filterIds.length ? list.filter((x) => x.travelers.some((id) => filterIds.includes(id))) : list;
   const fj = (list) => filterIds.length ? list.filter((x) => x.summary.travelers.some((id) => filterIds.includes(id))) : list;
+  const frt = (list) => filterIds.length ? list.filter((x) => x.outbound.travelers.some((id) => filterIds.includes(id))) : list;
 
   // AddTripModal does its own saving (via the save-flight Edge Function) —
   // this just re-syncs the board once it's done.
@@ -195,6 +204,7 @@ function App() {
               scheduled: fj(journeyByStatus.scheduled),
               landed: fj(journeyByStatus.landed),
             }}
+            roundTripItems={frt(roundTripItems)}
             allFlights={allFlights}
             now={now}
             heroOn
@@ -358,7 +368,8 @@ function PeopleFilter({ ids, onChange }) {
 }
 
 // ── Board ───────────────────────────────────────────────────────────────────
-function Board({ buckets, journeyBuckets, now, heroOn, onOpen, onAdd, allFlights, onAddReturn, onLinkConnection, onDismissReturn }) {
+function Board({ buckets, journeyBuckets, roundTripItems, now, heroOn, onOpen, onAdd, allFlights, onAddReturn, onLinkConnection, onDismissReturn }) {
+  const rt = roundTripItems || [];
   const jb = journeyBuckets || { airborne: [], boarding: [], scheduled: [], landed: [] };
   const airborne = buckets.airborne;
   const anyAirborne = airborne.length > 0 || jb.airborne.length > 0;
@@ -383,7 +394,7 @@ function Board({ buckets, journeyBuckets, now, heroOn, onOpen, onAdd, allFlights
   // Upcoming rail; each card's own status pill still says "Taking off soon"
   // vs "Upcoming" so the urgency distinction isn't lost, just not a whole
   // separate section for it.
-  const upcomingCount = remainingBoarding.length + buckets.scheduled.length + jb.boarding.length + jb.scheduled.length;
+  const upcomingCount = remainingBoarding.length + buckets.scheduled.length + jb.boarding.length + jb.scheduled.length + rt.length;
 
   return (
     <div className="board" data-screen-label="01 Board">
@@ -433,6 +444,7 @@ function Board({ buckets, journeyBuckets, now, heroOn, onOpen, onAdd, allFlights
               {jb.boarding.map((item) => <JourneyCard key={item.id} item={item} onOpen={onOpen} now={now} />)}
               {buckets.scheduled.map((f) => <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} onLinkConnection={onLinkConnection} onDismissReturn={onDismissReturn} />)}
               {jb.scheduled.map((item) => <JourneyCard key={item.id} item={item} onOpen={onOpen} now={now} />)}
+              {rt.map((item) => <RoundTripCard key={item.id} item={item} onOpen={onOpen} now={now} />)}
             </div>
           )
         }

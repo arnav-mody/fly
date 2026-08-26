@@ -61,6 +61,17 @@ function buildFlightTool(today: string) {
           type: ["string", "null"],
           description: "Local arrival time as 24-hour HH:MM, ONLY if explicitly printed — never calculate or guess this.",
         },
+        arrives_next_day: {
+          type: ["boolean", "null"],
+          description:
+            "True if the arrival is on the calendar day AFTER the departure date — either an explicit " +
+            "'+1' / next-day marker printed next to the arrival time, or an arrival date printed separately " +
+            "from the departure date, or the flight is a long-haul route where the arrival clock time " +
+            "being earlier than the departure clock time only makes sense if it lands the next day (e.g. " +
+            "an evening departure with a morning arrival time on what would otherwise read as the same " +
+            "day). False if arrival is clearly the same calendar day. Null if you can't tell either way — " +
+            "never guess.",
+        },
         low_confidence_fields: {
           type: "array",
           items: { type: "string" },

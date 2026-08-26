@@ -516,6 +516,83 @@ function JourneyCard({ item, onOpen, now }) {
   );
 }
 
+// ── RoundTripCard ───────────────────────────────────────────────────────────
+// An outbound flight and its already-logged return, shown as one card while
+// neither has happened yet (see pairRoundTrips, data.js) — the outbound gets
+// the normal full card treatment, and a compact return line sits below it
+// instead of that same trip appearing as a second, separate card further
+// down the board. The moment the outbound actually departs, pairRoundTrips
+// stops pairing them and the return goes back to being its own ordinary
+// card — this component only ever renders both still-upcoming.
+function RoundTripCard({ item, onOpen, now }) {
+  const { outbound, returnLeg } = item;
+  const status = flightStatus(outbound, now); // scheduled or boarding, by construction
+  const mode = modeOf(outbound);
+  const isFlight = mode === "flight";
+  const from = { ...airport(outbound.from), code: outbound.from };
+  const to   = { ...airport(outbound.to),   code: outbound.to };
+  const travelers = outbound.travelers.map(familyById).filter(Boolean);
+  const pillLabel = scheduledPillLabel(status, flightRealDepart(outbound), now);
+  const faUrl = isFlight && flightRealDepart(outbound) - now <= hours(48) ? flightAwareUrl(outbound) : null;
+  const returnAirport = airport(returnLeg.to);
+
+  return (
+    <article className={`card card--${status}`} onClick={() => onOpen(outbound)}>
+      <div className="card__top">
+        <AvatarStack ids={outbound.travelers} size={32} />
+        <StatusPill status={status} mode={mode} label={pillLabel} />
+      </div>
+      <div className="card__lead">
+        {cardLead({
+          status, isFlight, travelers, now,
+          depart: outbound.depart, arrive: outbound.arrive,
+          departReal: flightRealDepart(outbound), arriveReal: flightRealArrive(outbound),
+        })}
+      </div>
+      <div className="card__cities">
+        <span className="card__city">
+          <span className="card__city-code">{isFlight ? outbound.from : ""}</span>
+          <span className="card__city-name">{from.city}</span>
+        </span>
+        {isFlight ? (
+          <RouteRibbon from={from} to={to} progress={flightProgress(outbound, now)} status={status} />
+        ) : (
+          <span className="mode-connector" aria-hidden="true">{modeMeta(outbound).icon}</span>
+        )}
+        <span className="card__city">
+          <span className="card__city-code">{isFlight ? outbound.to : ""}</span>
+          <span className="card__city-name">{to.city}</span>
+        </span>
+      </div>
+      <BoardingPassStrip flight={outbound} dense />
+      {outbound.note && travelers.length === 1 && (
+        <div className="card__note">"{outbound.note.length > 80 ? outbound.note.slice(0, 80) + "…" : outbound.note}"</div>
+      )}
+      <button
+        className="card__return"
+        onClick={(e) => { e.stopPropagation(); onOpen(returnLeg); }}
+      >
+        <span className="card__return-label">Returns {fmtDateShort(returnLeg.depart)}</span>
+        <span className="card__return-row">
+          {isFlight && <span className="card__return-flight"><span className="bp-airline" style={{ ["--ac"]: airline(returnLeg.airline).color }}>{returnLeg.airline}</span>{returnLeg.number}</span>}
+          <span className="card__return-route">{returnAirport.city} <span aria-hidden="true">→</span> {from.city}</span>
+          <span className="card__return-time">{fmtTime(returnLeg.depart)} {to.tz}</span>
+        </span>
+      </button>
+      {faUrl && (
+        <a
+          className="fa-link card__fa"
+          href={faUrl}
+          target="_blank" rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+        >
+          Track on FlightAware <span className="fa-link__arrow">↗</span>
+        </a>
+      )}
+    </article>
+  );
+}
+
 // ── Section header ──────────────────────────────────────────────────────────
 function SectionHead({ kicker, title, sub, count }) {
   return (
@@ -538,5 +615,5 @@ function EmptyRow({ text }) {
 Object.assign(window, {
   fmtTime, fmtDateShort, fmtDateLong, fmtDuration, pad2,
   useNow, Avatar, AvatarStack, StatusPill, Countdown,
-  FlightProgress, BoardingPassStrip, FlightCard, JourneyCard, SectionHead, EmptyRow,
+  FlightProgress, BoardingPassStrip, FlightCard, JourneyCard, RoundTripCard, SectionHead, EmptyRow,
 });

@@ -322,7 +322,7 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
 // required. Uploading or pasting fills in the same fields live, in place.
 const EMPTY_TRIP_FORM = {
   travelers: [], airline: "", number: "",
-  from: "", to: "", date: "", departTime: "", arriveTime: "", note: "",
+  from: "", to: "", date: "", departTime: "", arriveTime: "", arriveNextDay: false, note: "",
 };
 
 // Loose name match against the family roster, used to auto-check a traveler
@@ -341,6 +341,26 @@ function matchTravelerByName(name) {
       (nick && norm.includes(nick));
   });
   return hit ? hit.id : null;
+}
+
+// One date field drives both depart and arrive by default — fine for most
+// trips, wrong for anything that lands the next calendar day (any real
+// long-haul: JFK–BOM, PHL–LHR overnight, etc.), which would otherwise store
+// an arrival that's earlier in real terms than its own departure. The
+// "Arrives next day" checkbox is what fixes that on the form side; this is
+// where it actually gets applied when building the timestamps to save.
+function addOneDay(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+function buildDepartArrive(date, departTime, arriveTime, arriveNextDay) {
+  const departAt = new Date(`${date}T${departTime}:00Z`);
+  // Arrival is optional (mainly for train/car, where it's often not known
+  // upfront) — default to 2 hours out so status still has a valid window.
+  if (!arriveTime) return { departAt, arriveAt: new Date(departAt.getTime() + 2 * 60 * 60 * 1000) };
+  const arriveAt = new Date(`${arriveNextDay ? addOneDay(date) : date}T${arriveTime}:00Z`);
+  return { departAt, arriveAt };
 }
 
 // UTC-getters because the app deliberately stores clock digits "as if" UTC
@@ -372,7 +392,7 @@ function placeCode(value) {
 }
 
 const EMPTY_LEG_FORM = {
-  airline: "", number: "", from: "", to: "", date: "", departTime: "", arriveTime: "",
+  airline: "", number: "", from: "", to: "", date: "", departTime: "", arriveTime: "", arriveNextDay: false,
 };
 
 // One "second leg" — used identically for the connecting-flight leg and the
@@ -401,6 +421,7 @@ function useLegForm() {
       date: p.date || l.date,
       departTime: p.depart_time || l.departTime,
       arriveTime: p.arrive_time || l.arriveTime,
+      arriveNextDay: p.arrives_next_day ?? l.arriveNextDay,
     }));
   };
 
@@ -550,6 +571,10 @@ function LegFields({ leg, idPrefix, title, isFlight, fromPlaceholder, toPlacehol
           <input type="time" value={f.arriveTime} onChange={(e) => leg.setForm({ ...f, arriveTime: e.target.value })} />
         </label>
       </div>
+      <label className="at__checkbox at__checkbox--tight">
+        <input type="checkbox" checked={f.arriveNextDay} onChange={(e) => leg.setForm({ ...f, arriveNextDay: e.target.checked })} />
+        <span>Arrives the next day</span>
+      </label>
     </div>
   );
 }
@@ -608,6 +633,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
         date: dep.date,
         departTime: dep.time,
         arriveTime: arr.time,
+        arriveNextDay: arr.date > dep.date,
         note: editing.note || "",
       });
     } else if (open && prefill) {
@@ -642,6 +668,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
       date: p.date || f.date,
       departTime: p.depart_time || f.departTime,
       arriveTime: p.arrive_time || f.arriveTime,
+      arriveNextDay: p.arrives_next_day ?? f.arriveNextDay,
       travelers: !f.travelers.length && matchTravelerByName(p.passenger_name)
         ? [matchTravelerByName(p.passenger_name)]
         : f.travelers,
@@ -692,12 +719,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
     // hanging.
     try {
       const fromCode = placeCode(form.from), toCode = placeCode(form.to);
-      const departAt = new Date(`${form.date}T${form.departTime}:00Z`);
-      // Arrival is optional (mainly for train/car, where it's often not known
-      // upfront) — default to 2 hours out so status still has a valid window.
-      const arriveAt = form.arriveTime
-        ? new Date(`${form.date}T${form.arriveTime}:00Z`)
-        : new Date(departAt.getTime() + 2 * 60 * 60 * 1000);
+      const { departAt, arriveAt } = buildDepartArrive(form.date, form.departTime, form.arriveTime, form.arriveNextDay);
 
       // Two legs sharing a journeyId collapse into one card on the board
       // (see buildJourneys in data.js) — generated client-side since both
@@ -741,10 +763,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
 
           if (doConnection) {
             const leg2FromCode = placeCode(leg2.form.from), leg2ToCode = placeCode(leg2.form.to);
-            const leg2DepartAt = new Date(`${leg2.form.date}T${leg2.form.departTime}:00Z`);
-            const leg2ArriveAt = leg2.form.arriveTime
-              ? new Date(`${leg2.form.date}T${leg2.form.arriveTime}:00Z`)
-              : new Date(leg2DepartAt.getTime() + 2 * 60 * 60 * 1000);
+            const { departAt: leg2DepartAt, arriveAt: leg2ArriveAt } = buildDepartArrive(leg2.form.date, leg2.form.departTime, leg2.form.arriveTime, leg2.form.arriveNextDay);
             withTimeout(window.supabaseClient.functions.invoke("save-flight", {
               body: {
                 mode,
@@ -784,10 +803,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
           // can fill in a different actual route.
           const retFromCode = returnLeg.form.from ? placeCode(returnLeg.form.from) : toCode;
           const retToCode = returnLeg.form.to ? placeCode(returnLeg.form.to) : fromCode;
-          const retDepartAt = new Date(`${returnLeg.form.date}T${returnLeg.form.departTime}:00Z`);
-          const retArriveAt = returnLeg.form.arriveTime
-            ? new Date(`${returnLeg.form.date}T${returnLeg.form.arriveTime}:00Z`)
-            : new Date(retDepartAt.getTime() + 2 * 60 * 60 * 1000);
+          const { departAt: retDepartAt, arriveAt: retArriveAt } = buildDepartArrive(returnLeg.form.date, returnLeg.form.departTime, returnLeg.form.arriveTime, returnLeg.form.arriveNextDay);
           withTimeout(window.supabaseClient.functions.invoke("save-flight", {
             body: {
               mode,
@@ -1098,6 +1114,10 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
               <input type="time" value={form.arriveTime} onChange={(e) => setForm({ ...form, arriveTime: e.target.value })} />
             </label>
           </div>
+          <label className="at__checkbox at__checkbox--tight">
+            <input type="checkbox" checked={form.arriveNextDay} onChange={(e) => setForm({ ...form, arriveNextDay: e.target.checked })} />
+            <span>Arrives the next day</span>
+          </label>
           <div className="at__hint">Local time at departure/arrival — enter exactly what's printed on the ticket.</div>
 
           {!editing && !addingConnection && (

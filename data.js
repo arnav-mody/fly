@@ -69,6 +69,7 @@ const AIRPORTS = {
   DTW: { city: "Detroit",       country: "USA", name: "Detroit Metro",          lat: 42.21, lon: -83.35,  tz: "EDT", tzId: "America/New_York" },
   STL: { city: "St. Louis",     country: "USA", name: "St. Louis Lambert",      lat: 38.75, lon: -90.37,  tz: "CDT", tzId: "America/Chicago" },
   MCI: { city: "Kansas City",   country: "USA", name: "Kansas City Intl",       lat: 39.30, lon: -94.71,  tz: "CDT", tzId: "America/Chicago" },
+  IND: { city: "Indianapolis",  country: "USA", name: "Indianapolis Intl",      lat: 39.72, lon: -86.29,  tz: "EDT", tzId: "America/Indiana/Indianapolis" },
   BOS: { city: "Boston",        country: "USA", name: "Logan Intl",             lat: 42.36, lon: -71.01,  tz: "EDT", tzId: "America/New_York" },
   PHL: { city: "Philadelphia",  country: "USA", name: "Philadelphia Intl",      lat: 39.87, lon: -75.24,  tz: "EDT", tzId: "America/New_York" },
   DCA: { city: "Washington",    country: "USA", name: "Reagan National",        lat: 38.85, lon: -77.04,  tz: "EDT", tzId: "America/New_York" },
@@ -151,6 +152,7 @@ const AIRPORTS = {
   AMM: { city: "Amman",         country: "Jordan",  name: "Queen Alia Intl",    lat: 31.72, lon: 35.99,  tz: "EEST", tzId: "Asia/Amman" },
   JED: { city: "Jeddah",        country: "Saudi Arabia", name: "King Abdulaziz Intl", lat: 21.68, lon: 39.16, tz: "AST", tzId: "Asia/Riyadh" },
   RUH: { city: "Riyadh",        country: "Saudi Arabia", name: "King Khalid Intl",    lat: 24.96, lon: 46.70, tz: "AST", tzId: "Asia/Riyadh" },
+  GYD: { city: "Baku",          country: "Azerbaijan", name: "Heydar Aliyev Intl", lat: 40.47, lon: 50.05, tz: "AZT", tzId: "Asia/Baku" },
 
   // ── India ────────────────────────────────────────────────────────────────
   DEL: { city: "Delhi",         country: "India", name: "Indira Gandhi Intl",   lat: 28.55, lon: 77.10,  tz: "IST", tzId: "Asia/Kolkata" },
@@ -367,14 +369,6 @@ function zonedWallClockToUtc(wallClockDate, tzId) {
   return new Date(guess);
 }
 
-// The real UTC instant a stored "naive" flight time represents, given the
-// airport it belongs to — or the naive value unchanged if we don't know that
-// airport's real zone (nothing better to go on). Used for any comparison
-// against a live `now`; see flightRealDepart/flightRealArrive below.
-function realInstant(naiveDate, airportEntry) {
-  return airportEntry?.tzId ? zonedWallClockToUtc(naiveDate, airportEntry.tzId) : naiveDate;
-}
-
 // The viewer's own IANA zone, resolved once from the browser.
 const VIEWER_TZ = (() => {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return null; }
@@ -413,19 +407,31 @@ const familyById  = (id) => FAMILY.find((p) => p.id === id);
 const airline     = (code) => AIRLINES[code] || { code: code || "", name: code || "—", color: "var(--ink-soft)" };
 const airport     = (code) => AIRPORTS[code] || { code: code || "", city: code || "—", country: "", name: code || "" };
 
-// The flight's real UTC instant — reinterprets the stored "naive" digits as
-// wall-clock time at the actual airport and converts using its real IANA
-// zone (see zonedWallClockToUtc above), falling back to the naive value
-// unchanged when the airport's zone isn't known (unrecognized code, or
-// train/car's free-text place) since there's no better information to go
-// on. Anything comparing a flight's depart/arrive against a live `now` —
-// status, countdowns, progress bars — must use these, not the raw
-// f.depart/f.arrive, or the comparison silently drifts by the size of
-// whatever UTC offset the naive digits were never actually adjusted for.
-// f.depart/f.arrive stay exactly as stored for *display* (fmtTime etc.),
-// which is deliberately airport-local and doesn't need this conversion.
-function flightRealDepart(f) { return realInstant(f.depart, airport(f.from)); }
-function flightRealArrive(f) { return realInstant(f.arrive, airport(f.to)); }
+// The flight's real UTC instants — reinterprets the stored "naive" digits as
+// wall-clock time at the actual airports and converts using their real IANA
+// zones (see zonedWallClockToUtc above). Anything comparing a flight's
+// depart/arrive against a live `now` — status, countdowns, progress bars,
+// duration — must use these, not the raw f.depart/f.arrive, or the
+// comparison silently drifts by the size of whatever UTC offset the naive
+// digits were never actually adjusted for. f.depart/f.arrive stay exactly
+// as stored for *display* (fmtTime etc.), which is deliberately
+// airport-local and doesn't need this conversion.
+//
+// Both ends must have a known zone before *either* gets corrected — origin
+// and destination are corrected as a pair, never one alone. Shifting only
+// the end we happen to recognize (e.g. a flight to an airport outside our
+// 137-entry list) leaves the other end on the old naive basis, and the two
+// are no longer the same kind of instant: a real depart can end up reading
+// *later* than a still-naive arrival, producing a negative duration. Falling
+// back to the naive value for both ends is less precise but never
+// self-contradictory.
+function flightRealTimes(f) {
+  const fromTz = airport(f.from)?.tzId, toTz = airport(f.to)?.tzId;
+  if (!fromTz || !toTz) return { depart: f.depart, arrive: f.arrive };
+  return { depart: zonedWallClockToUtc(f.depart, fromTz), arrive: zonedWallClockToUtc(f.arrive, toTz) };
+}
+function flightRealDepart(f) { return flightRealTimes(f).depart; }
+function flightRealArrive(f) { return flightRealTimes(f).arrive; }
 
 // How far along a flight is right now, 0..1, for the animated plane on
 // RouteMap/RouteRibbon. Computed live from the real depart/arrive instants
@@ -524,6 +530,43 @@ function buildJourneys(flights) {
   return items;
 }
 
+// Pair up an outbound flight and its return into one "roundtrip" board item
+// — same travelers, exact reversed route, return departing after outbound
+// arrives — but only while *neither* has happened yet: once the outbound
+// departs there's nothing left to preview together, and the return should
+// just stand on its own as a normal upcoming card (see flightStatus's
+// scheduled/boarding vs airborne/landed/past). Purely a presentation
+// grouping over buildJourneys' output — round-trip legs aren't linked by
+// any id in the database the way a connecting journey's legs are; this
+// re-derives the pairing every render from what's already logged.
+function pairRoundTrips(items, now = new Date()) {
+  const solos = items.filter((i) => i.kind === "solo");
+  const others = items.filter((i) => i.kind !== "solo");
+  const future = (f) => { const s = flightStatus(f, now); return s === "scheduled" || s === "boarding"; };
+  const sameTravelers = (a, b) => a.length === b.length && a.every((id) => b.includes(id));
+
+  const used = new Set();
+  const paired = [];
+  for (let i = 0; i < solos.length; i++) {
+    const a = solos[i].flight;
+    if (used.has(a.id) || !future(a)) continue;
+    for (let j = 0; j < solos.length; j++) {
+      if (i === j) continue;
+      const b = solos[j].flight;
+      if (used.has(b.id) || !future(b)) continue;
+      if (b.mode !== a.mode) continue;
+      if (!sameTravelers(a.travelers, b.travelers)) continue;
+      if (!placesMatch(a.to, b.from) || !placesMatch(a.from, b.to)) continue;
+      if (b.depart <= a.arrive) continue; // b must be the later, returning leg
+      used.add(a.id); used.add(b.id);
+      paired.push({ kind: "roundtrip", id: `rt:${a.id}`, outbound: a, returnLeg: b });
+      break;
+    }
+  }
+  const remainingSolo = solos.filter((s) => !used.has(s.flight.id));
+  return [...remainingSolo, ...others, ...paired];
+}
+
 // Status for a whole journey, derived purely from each real leg's own
 // status — never inferred beyond what the legs themselves say. "layover" is
 // new here: it only ever appears for a multi-leg journey, when now falls
@@ -551,8 +594,8 @@ function itemStatus(item, now = new Date()) {
 window.MGData = {
   NOW, FAMILY, AIRPORTS, AIRLINES, FLIGHTS, MODE_META,
   flightStatus, familyById, airline, airport, flightAwareUrl, modeOf, modeMeta, hasLoggedReturn, isHomeArrival, hasCoords,
-  viewerTime, VIEWER_TZ, realInstant, flightRealDepart, flightRealArrive, flightProgress,
-  isConnectionCandidate, findConnectionCandidate, buildJourneys, journeyStatus, itemStatus, placesMatch,
+  viewerTime, VIEWER_TZ, flightRealDepart, flightRealArrive, flightProgress,
+  isConnectionCandidate, findConnectionCandidate, buildJourneys, pairRoundTrips, journeyStatus, itemStatus, placesMatch,
   CONNECTION_MIN_GAP, CONNECTION_MAX_GAP,
   minutes, hours, days,
 };
