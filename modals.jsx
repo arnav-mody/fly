@@ -910,7 +910,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
     const laterFrom = placeCode(formIsEarlier ? leg2.form.from : form.from).toUpperCase();
     const earlierArrive = formIsEarlier ? formArrive : leg2Arrive;
     const laterDepart = formIsEarlier ? leg2Depart : formDepart;
-    if (earlierTo !== laterFrom) {
+    if (!window.MGData.placesMatch(earlierTo, laterFrom)) {
       connectionWarning = `The earlier leg lands at ${earlierTo}, but the later one leaves from ${laterFrom} — that's not a connection at the same airport. It'll still save, but double-check this is right.`;
     } else {
       const gapMs = laterDepart - earlierArrive;
@@ -1031,66 +1031,58 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
             </div>
           )}
 
-          {mode === "flight" ? (
-            <>
-              <div className="at__row">
-                <label className="at__field">
-                  <span>Airline (optional)</span>
-                  <input
-                    list="at-airline-list"
-                    value={form.airline}
-                    onChange={(e) => setForm({ ...form, airline: e.target.value.toUpperCase() })}
-                    placeholder="UA"
-                  />
-                  <datalist id="at-airline-list">
-                    {Object.entries(_AL).map(([code, a]) => (
-                      <option key={code} value={code}>{code} — {a.name}</option>
-                    ))}
-                  </datalist>
-                </label>
-                <label className="at__field">
-                  <span>Flight # (optional)</span>
-                  <input value={form.number} onChange={(e) => setForm({ ...form, number: e.target.value })} placeholder="286" />
-                </label>
-              </div>
-              <div className="at__row">
-                <label className="at__field">
-                  <span>From (city or airport — code optional)</span>
-                  <input
-                    list="at-airport-list"
-                    value={form.from}
-                    onChange={(e) => setForm({ ...form, from: e.target.value })}
-                    placeholder="San Francisco"
-                  />
-                </label>
-                <label className="at__field">
-                  <span>To (city or airport — code optional)</span>
-                  <input
-                    list="at-airport-list"
-                    value={form.to}
-                    onChange={(e) => setForm({ ...form, to: e.target.value })}
-                    placeholder="London"
-                  />
-                </label>
-                <datalist id="at-airport-list">
-                  {Object.entries(_AP).map(([code, a]) => (
-                    <option key={code} value={`${a.city} (${code})`}>{a.city}, {a.country}</option>
-                  ))}
-                </datalist>
-              </div>
-            </>
-          ) : (
+          {mode === "flight" && (
             <div className="at__row">
               <label className="at__field">
-                <span>From</span>
-                <input value={form.from} onChange={(e) => setForm({ ...form, from: e.target.value })} placeholder="San Francisco" />
+                <span>Airline (optional)</span>
+                <input
+                  list="at-airline-list"
+                  value={form.airline}
+                  onChange={(e) => setForm({ ...form, airline: e.target.value.toUpperCase() })}
+                  placeholder="UA"
+                />
+                <datalist id="at-airline-list">
+                  {Object.entries(_AL).map(([code, a]) => (
+                    <option key={code} value={code}>{code} — {a.name}</option>
+                  ))}
+                </datalist>
               </label>
               <label className="at__field">
-                <span>To</span>
-                <input value={form.to} onChange={(e) => setForm({ ...form, to: e.target.value })} placeholder="Los Angeles" />
+                <span>Flight # (optional)</span>
+                <input value={form.number} onChange={(e) => setForm({ ...form, number: e.target.value })} placeholder="286" />
               </label>
             </div>
           )}
+          <div className="at__row">
+            <label className="at__field">
+              <span>From{mode === "flight" ? " (city or airport — code optional)" : ""}</span>
+              <input
+                list="at-airport-list"
+                value={form.from}
+                onChange={(e) => setForm({ ...form, from: e.target.value })}
+                placeholder="San Francisco"
+              />
+            </label>
+            <label className="at__field">
+              <span>To{mode === "flight" ? " (city or airport — code optional)" : ""}</span>
+              <input
+                list="at-airport-list"
+                value={form.to}
+                onChange={(e) => setForm({ ...form, to: e.target.value })}
+                placeholder="London"
+              />
+            </label>
+          </div>
+          {/* Always rendered (not just in flight mode) — train/car legs are
+              free-text places, but offering the same recognized-city list
+              means "Istanbul" and "IST" resolve to the same value instead
+              of looking like two different places to isConnectionCandidate
+              (see placesMatch, data.js) if someone types instead of picks. */}
+          <datalist id="at-airport-list">
+            {Object.entries(_AP).map(([code, a]) => (
+              <option key={code} value={`${a.city} (${code})`}>{a.city}, {a.country}</option>
+            ))}
+          </datalist>
 
           <label className="at__field at__field--full">
             <span>Date</span>

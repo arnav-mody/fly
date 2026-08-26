@@ -280,6 +280,27 @@ const MODE_META = {
 const modeOf = (f) => MODE_META[f?.mode] ? f.mode : "flight";
 const modeMeta = (f) => MODE_META[modeOf(f)];
 
+// Two "place" values (an airport code, or a free-typed city — train/car
+// legs, or a flight leg someone typed instead of picking from the airport
+// list) are the same place if they're an exact match, OR if either/both
+// resolve to a known airport and those airports share a city — "IST" and
+// "Istanbul" need to compare equal, not look like two different places,
+// or a flight landing at IST and a second one leaving from "Istanbul"
+// (typed instead of picked from the list) won't be recognized as a
+// connection, and a return leg logged the same loose way won't be found
+// either. This is the actual fix for that mismatch; the AddTripModal
+// datalist (see modals.jsx) reduces how often it happens in the first
+// place, but doesn't guarantee it — someone can always just type.
+function placesMatch(a, b) {
+  if (!a || !b) return false;
+  const normA = String(a).trim().toUpperCase();
+  const normB = String(b).trim().toUpperCase();
+  if (normA === normB) return true;
+  const cityA = AIRPORTS[normA]?.city.toUpperCase() ?? normA;
+  const cityB = AIRPORTS[normB]?.city.toUpperCase() ?? normB;
+  return cityA === cityB;
+}
+
 // Purely a data-completeness check, not a location claim: is there any
 // other logged flight, for at least one of the same travelers, departing
 // from where this one landed? If not, that's worth flagging so whoever's
@@ -287,7 +308,7 @@ const modeMeta = (f) => MODE_META[modeOf(f)];
 // they're away for.
 const hasLoggedReturn = (flight, allFlights) => allFlights.some((other) =>
   other.id !== flight.id &&
-  other.from === flight.to &&
+  placesMatch(other.from, flight.to) &&
   other.depart > flight.arrive &&
   other.travelers.some((id) => flight.travelers.includes(id))
 );
@@ -297,15 +318,12 @@ const hasLoggedReturn = (flight, allFlights) => allFlights.some((other) =>
 // doesn't need one). Only suppresses the "return not logged" nudge when
 // that's true for everyone aboard; a mixed group (some home, some not)
 // still gets the nudge, since it may still be missing for whoever isn't.
-// Compares by *city*, not exact airport code — someone whose home airport
-// is JFK is still home if they land at LGA or EWR instead; a metro area
-// commonly has more than one airport, and a family member landing at
+// Uses placesMatch (city-level, not exact code) — someone whose home
+// airport is JFK is still home if they land at LGA or EWR instead; a metro
+// area commonly has more than one airport, and a family member landing at
 // whichever one had the better fare shouldn't read as "away from home".
 const isHomeArrival = (flight) => flight.travelers.length > 0 &&
-  flight.travelers.every((id) => {
-    const home = familyById(id)?.homeAirport;
-    return home && airport(home).city === airport(flight.to).city;
-  });
+  flight.travelers.every((id) => placesMatch(familyById(id)?.homeAirport, flight.to));
 
 // RouteMap needs real lat/lon to draw an arc — a free-typed airport code we
 // don't recognize (or train/car's plain city text) has none, and feeding it
@@ -448,7 +466,7 @@ const CONNECTION_MAX_GAP = hours(8);     // longer than this is a separate trip,
 function isConnectionCandidate(a, b) {
   if (!a || !b || a.id === b.id) return false;
   if (a.mode !== b.mode) return false;
-  if (a.to !== b.from) return false;
+  if (!placesMatch(a.to, b.from)) return false;
   if (!a.travelers.some((id) => b.travelers.includes(id))) return false;
   const gap = b.depart.getTime() - a.arrive.getTime();
   return gap >= CONNECTION_MIN_GAP && gap <= CONNECTION_MAX_GAP;
@@ -534,7 +552,7 @@ window.MGData = {
   NOW, FAMILY, AIRPORTS, AIRLINES, FLIGHTS, MODE_META,
   flightStatus, familyById, airline, airport, flightAwareUrl, modeOf, modeMeta, hasLoggedReturn, isHomeArrival, hasCoords,
   viewerTime, VIEWER_TZ, realInstant, flightRealDepart, flightRealArrive, flightProgress,
-  isConnectionCandidate, findConnectionCandidate, buildJourneys, journeyStatus, itemStatus,
+  isConnectionCandidate, findConnectionCandidate, buildJourneys, journeyStatus, itemStatus, placesMatch,
   CONNECTION_MIN_GAP, CONNECTION_MAX_GAP,
   minutes, hours, days,
 };
