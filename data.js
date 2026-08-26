@@ -11,23 +11,25 @@ const NOW = new Date();
 
 // Family members. The `tone` controls each person's monogram color so the
 // directory + avatars feel distinct without leaning on stock photos.
-// `home`/`homeAirport` are deliberately unset — they're not known yet, and
-// the Calendar view's "away from home" detection just quietly no-ops until
-// they're filled in with real values (see familyById in this file for how
-// a missing homeAirport degrades, not crashes). `photo` is an optional URL;
-// Avatar falls back to the monogram when it's not set.
+// `homeAirport` is a starting default (editable from the Travelers tab —
+// see TravelersView) — it's what suppresses the "return not logged" nudge
+// when someone's landed exactly where they live, and what the Calendar's
+// "away from home" detection keys off of. These defaults are overwritten
+// as soon as the real values load from Supabase (see refreshHomes in
+// app.jsx); they're just what a fresh page shows before that fetch lands.
+// `photo` is an optional URL; Avatar falls back to the monogram when unset.
 const FAMILY = [
-  { id: "arnav",  first: "Arnav",  last: "Mody",   home: null, homeAirport: null, photo: null, tone: 1 },
-  { id: "esha",   first: "Esha",   last: "Mody",   home: null, homeAirport: null, photo: null, tone: 2 },
-  { id: "roopal", first: "Roopal", last: "Mody",   home: null, homeAirport: null, photo: null, tone: 3 },
-  { id: "nihar",  first: "Nihar",  last: "Mody",   home: null, homeAirport: null, photo: null, tone: 4 },
-  { id: "ashok",  first: "Ashok",  last: "Mody",   home: null, homeAirport: null, photo: null, tone: 5 },
-  { id: "rohan",  first: "Rohan",  last: "Gandhi", home: null, homeAirport: null, photo: null, tone: 6 },
-  { id: "avani",  first: "Avani",  last: "Gandhi", home: null, homeAirport: null, photo: null, tone: 7 },
-  { id: "sanjay", first: "Sanjay", last: "Gandhi", home: null, homeAirport: null, photo: null, tone: 8 },
-  { id: "charu",  first: "Charu",  last: "Gandhi", home: null, homeAirport: null, photo: null, tone: 9 },
-  { id: "navin",  first: "Navin",  last: "Gandhi", home: null, homeAirport: null, photo: null, tone: 10 },
-  { id: "ramila", first: "Ramila", last: "Gandhi", home: null, homeAirport: null, photo: null, tone: 11 },
+  { id: "arnav",  first: "Arnav",  last: "Mody",   home: null, homeAirport: "JFK", photo: null, tone: 1 },
+  { id: "esha",   first: "Esha",   last: "Mody",   home: null, homeAirport: "ORD", photo: null, tone: 2 },
+  { id: "roopal", first: "Roopal", last: "Mody",   home: null, homeAirport: "BOM", photo: null, tone: 3 },
+  { id: "nihar",  first: "Nihar",  last: "Mody",   home: null, homeAirport: "BOM", photo: null, tone: 4 },
+  { id: "ashok",  first: "Ashok",  last: "Mody",   home: null, homeAirport: "BOM", photo: null, tone: 5 },
+  { id: "rohan",  first: "Rohan",  last: "Gandhi", home: null, homeAirport: "DCA", photo: null, tone: 6 },
+  { id: "avani",  first: "Avani",  last: "Gandhi", home: null, homeAirport: "PHL", photo: null, tone: 7 },
+  { id: "sanjay", first: "Sanjay", last: "Gandhi", home: null, homeAirport: "PHL", photo: null, tone: 8 },
+  { id: "charu",  first: "Charu",  last: "Gandhi", home: null, homeAirport: "PHL", photo: null, tone: 9 },
+  { id: "navin",  first: "Navin",  last: "Gandhi", home: null, homeAirport: "BOM", photo: null, tone: 10 },
+  { id: "ramila", first: "Ramila", last: "Gandhi", home: null, homeAirport: "BOM", photo: null, tone: 11 },
 ];
 
 // Airport lookup with rough lat/lon for the route map. A curated set of
@@ -234,8 +236,9 @@ const FLIGHTS = [];
 // whatever `now` (real wall-clock time) is passed in at render time.
 // Deliberately factual only — no inference about where someone "is" beyond
 // a verified flight state. "landed" is time-boxed to 24h so a completed
-// flight ages off the live board on its own; after that it's "past" and
-// only visible in Calendar, which just lists what was actually logged.
+// flight ages off the live board on its own after 8 hours; after that it's
+// "past" and only visible in Calendar, which just lists what was actually
+// logged.
 //
 // Compares against the flight's *real* UTC instant (see flightRealDepart/
 // flightRealArrive below), not the naive stored digits — comparing naive
@@ -245,7 +248,7 @@ const FLIGHTS = [];
 // isn't actually the same instant as the real clock reads.
 function flightStatus(f, now = new Date()) {
   const dep = flightRealDepart(f).getTime(), arr = flightRealArrive(f).getTime(), n = now.getTime();
-  if (n >= arr + hours(24))                return "past";
+  if (n >= arr + hours(8))                  return "past";
   if (n >= arr)                             return "landed";
   if (n >= dep)                             return "airborne";
   if (n >= dep - hours(24))                 return "boarding"; // taking off soon (within 24h)
@@ -273,6 +276,14 @@ const hasLoggedReturn = (flight, allFlights) => allFlights.some((other) =>
   other.depart > flight.arrive &&
   other.travelers.some((id) => flight.travelers.includes(id))
 );
+
+// True when every traveler on this flight already lives where it lands —
+// the trip needs no return leg because it *is* the return leg (or just
+// doesn't need one). Only suppresses the "return not logged" nudge when
+// that's true for everyone aboard; a mixed group (some home, some not)
+// still gets the nudge, since it may still be missing for whoever isn't.
+const isHomeArrival = (flight) => flight.travelers.length > 0 &&
+  flight.travelers.every((id) => familyById(id)?.homeAirport === flight.to);
 
 // RouteMap needs real lat/lon to draw an arc — a free-typed airport code we
 // don't recognize (or train/car's plain city text) has none, and feeding it
@@ -490,7 +501,7 @@ function itemStatus(item, now = new Date()) {
 
 window.MGData = {
   NOW, FAMILY, AIRPORTS, AIRLINES, FLIGHTS, MODE_META,
-  flightStatus, familyById, airline, airport, flightAwareUrl, modeOf, modeMeta, hasLoggedReturn, hasCoords,
+  flightStatus, familyById, airline, airport, flightAwareUrl, modeOf, modeMeta, hasLoggedReturn, isHomeArrival, hasCoords,
   viewerTime, VIEWER_TZ, realInstant, flightRealDepart, flightRealArrive, flightProgress,
   isConnectionCandidate, findConnectionCandidate, buildJourneys, journeyStatus, itemStatus,
   CONNECTION_MIN_GAP, CONNECTION_MAX_GAP,

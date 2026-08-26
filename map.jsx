@@ -208,6 +208,87 @@ function RouteMap({ from, to, progress = 0, status = "scheduled", compact = fals
   );
 }
 
+// ── JourneyRouteMap ─────────────────────────────────────────────────────────
+// Same visual language as RouteMap (continents, graticule, dashed-vs-solid
+// arcs, a plane sprite when a leg is airborne), extended to a connecting
+// journey's whole chain of stops — origin, every layover, and the final
+// destination each get their own labeled pin, joined leg by leg.
+function JourneyRouteMap({ legs, now, height }) {
+  const stops = [
+    { ...airport(legs[0].from), code: legs[0].from },
+    ...legs.map((l) => ({ ...airport(l.to), code: l.to })),
+  ];
+  if (!stops.every((s) => Number.isFinite(s.lat) && Number.isFinite(s.lon))) return null;
+
+  const W = 840, H = height ?? 240;
+  const midLon = stops.reduce((sum, s) => sum + s.lon, 0) / stops.length;
+  const project = projectFactory({ width: W, height: H, centerLon: midLon, lonSpan: 360, latSpan: 180, midLat: 0 });
+
+  const graticule = [];
+  for (let lat = -60; lat <= 60; lat += 15) {
+    const [, y1] = project(lat, midLon - 180);
+    graticule.push(<line key={`la${lat}`} x1="0" y1={y1} x2={W} y2={y1} stroke="var(--paper-line)" strokeWidth="0.5" />);
+  }
+  for (let lon = -180; lon <= 180; lon += 30) {
+    const [x1] = project(0, midLon + lon);
+    graticule.push(<line key={`lo${lon}`} x1={x1} y1="0" x2={x1} y2={H} stroke="var(--paper-line)" strokeWidth="0.5" />);
+  }
+
+  const airborneIdx = legs.findIndex((l) => flightStatus(l, now) === "airborne");
+  const plane = airborneIdx >= 0
+    ? pointAt(stops[airborneIdx], stops[airborneIdx + 1], project, Math.max(0, Math.min(1, flightProgress(legs[airborneIdx], now))))
+    : null;
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="route-map" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <pattern id="jrmGrain" width="3" height="3" patternUnits="userSpaceOnUse">
+          <circle cx="1.5" cy="1.5" r="0.4" fill="var(--ink)" opacity="0.06" />
+        </pattern>
+      </defs>
+      <rect width={W} height={H} fill="var(--paper-soft)" />
+      <rect width={W} height={H} fill="url(#jrmGrain)" />
+      <g opacity="0.85">{graticule}</g>
+      <g className="route-map__continents">
+        {CONTINENTS.map((d, i) => <path key={i} d={d} fill="var(--ink)" opacity="0.07" />)}
+      </g>
+      {legs.map((leg, i) => {
+        const arc = arcPath(stops[i], stops[i + 1], project, 80);
+        const legStatus = flightStatus(leg, now);
+        return (
+          <g key={i}>
+            <path d={arc} fill="none" stroke="var(--ink)" strokeOpacity="0.15" strokeWidth="2.5" strokeLinecap="round" />
+            <path d={arc} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round"
+                  strokeDasharray={legStatus === "scheduled" || legStatus === "boarding" ? "4 5" : "0"} />
+          </g>
+        );
+      })}
+      {stops.map((s, i) => {
+        const [x, y] = project(s.lat, s.lon);
+        const isEnd = i === 0 || i === stops.length - 1;
+        const dotColor = i === 0 ? "var(--ink)" : i === stops.length - 1 ? "var(--accent)" : "var(--sage)";
+        return (
+          <g key={i}>
+            <g transform={`translate(${x},${y})`}>
+              <circle r={isEnd ? 9 : 6.5} fill="var(--paper)" stroke="var(--ink)" strokeWidth="1.5" />
+              <circle r={isEnd ? 3.5 : 2.8} fill={dotColor} />
+            </g>
+            <text x={x} y={y - (isEnd ? 14 : 12)} textAnchor="middle" className="route-map__code">{s.code}</text>
+          </g>
+        );
+      })}
+      {plane && (
+        <g transform={`translate(${plane.x},${plane.y}) rotate(${plane.heading})`} className="route-map__plane">
+          <circle r="14" fill="var(--sky)" opacity="0.18" />
+          <circle r="8" fill="var(--sky)" opacity="0.35" />
+          <path d="M -10 -3 L 10 0 L -10 3 L -6 0 Z" fill="var(--ink)" />
+          <path d="M -6 0 L 10 0" stroke="var(--paper)" strokeWidth="0.5" />
+        </g>
+      )}
+    </svg>
+  );
+}
+
 // ── RouteRibbon ─────────────────────────────────────────────────────────────
 // Slim card-sized route diagram. Just an arc between two labeled dots.
 function RouteRibbon({ from, to, progress = 0, status = "scheduled" }) {

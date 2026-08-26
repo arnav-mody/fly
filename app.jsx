@@ -69,6 +69,28 @@ function App() {
   }, []);
   React.useEffect(() => { refreshFlights(); }, [refreshFlights]);
 
+  // Home airports — editable from the Travelers tab (see TravelersView).
+  // FAMILY is a shared module-level array (data.js); mutating each person's
+  // homeAirport in place is what everything else in the app already reads
+  // (familyById, isHomeArrival, etc.) — bumping this counter is just what
+  // forces React to notice the mutation happened and re-render.
+  const [, setHomeVersion] = React.useState(0);
+  const refreshHomes = React.useCallback(() => {
+    if (!window.supabaseClient) return;
+    window.supabaseClient
+      .from("family_members")
+      .select("id, home_airport")
+      .then(({ data, error }) => {
+        if (error) { console.error("Couldn't load home airports from Supabase:", error.message); return; }
+        for (const row of data || []) {
+          const p = familyById(row.id);
+          if (p) p.homeAirport = row.home_airport || null;
+        }
+        setHomeVersion((v) => v + 1);
+      });
+  }, []);
+  React.useEffect(() => { refreshHomes(); }, [refreshHomes]);
+
   const allFlights = [...FLIGHTS, ...dbFlights];
 
   // Group legs sharing a journeyId into one journey item — everything else
@@ -178,7 +200,7 @@ function App() {
           />
         )}
         {view === "travelers" && (
-          <TravelersView allFlights={allFlights} now={now} onSelectPerson={(id) => { setFilterIds([id]); setView("board"); }} />
+          <TravelersView allFlights={allFlights} now={now} onSelectPerson={(id) => { setFilterIds([id]); setView("board"); }} onHomeChanged={refreshHomes} />
         )}
       </main>
 
@@ -341,30 +363,20 @@ function Board({ buckets, journeyBuckets, now, heroOn, onOpen, onAdd, allFlights
     }).filter(Boolean),
   ];
 
+  // "Taking off soon" and "on the horizon" are really both just "hasn't
+  // happened yet" from a board-ordering standpoint — merged into one
+  // Upcoming rail; each card's own status pill still says "Taking off soon"
+  // vs "Upcoming" so the urgency distinction isn't lost, just not a whole
+  // separate section for it.
+  const upcomingCount = remainingBoarding.length + buckets.scheduled.length + jb.boarding.length + jb.scheduled.length;
+
   return (
     <div className="board" data-screen-label="01 Board">
       {showBoardingHero && (
         <HeroBoarding flight={boardingHeroFlight} now={now} onOpen={onOpen} />
       )}
 
-      {/* Taking off soon (and layovers underway) */}
-      {(remainingBoarding.length > 0 || jb.boarding.length > 0) && (
-        <section className="rail">
-          <SectionHead
-            kicker="Next 24 hours"
-            title="Taking off soon"
-            count={buckets.boarding.length + jb.boarding.length}
-          />
-          <div className="rail__grid">
-            {remainingBoarding.map((f) => (
-              <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} onLinkConnection={onLinkConnection} />
-            ))}
-            {jb.boarding.map((item) => <JourneyCard key={item.id} item={item} onOpen={onOpen} now={now} />)}
-          </div>
-        </section>
-      )}
-
-      {/* In the air — one shared map above the cards, no per-flight hero */}
+      {/* In the air — always first. One shared map above the cards. */}
       {anyAirborne && (
         <section className="rail">
           <SectionHead kicker="Right now" title="In the air" count={airborne.length + jb.airborne.length} />
@@ -380,30 +392,36 @@ function Board({ buckets, journeyBuckets, now, heroOn, onOpen, onAdd, allFlights
         </section>
       )}
 
-      {/* This week */}
-      <section className="rail">
-        <SectionHead kicker="This week & beyond" title="On the horizon" count={buckets.scheduled.length + jb.scheduled.length} />
-        {buckets.scheduled.length === 0 && jb.scheduled.length === 0
-          ? <EmptyRow text="No upcoming trips. Tell the family to start planning something!" />
-          : (
-            <div className="rail__grid">
-              {buckets.scheduled.map((f) => <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onLinkConnection={onLinkConnection} />)}
-              {jb.scheduled.map((item) => <JourneyCard key={item.id} item={item} onOpen={onOpen} now={now} />)}
-            </div>
-          )
-        }
-      </section>
-
-      {/* Just landed */}
+      {/* Just landed — next, and only for 8 hours after arrival (see
+          flightStatus in data.js); after that it's "past" and drops off
+          the board entirely, still visible in Calendar. */}
       {(buckets.landed.length > 0 || jb.landed.length > 0) && (
         <section className="rail rail--landed">
-          <SectionHead kicker="Welcome home" title="Just landed" count={buckets.landed.length + jb.landed.length} />
+          <SectionHead kicker="Last 8 hours" title="Just landed" count={buckets.landed.length + jb.landed.length} />
           <div className="rail__grid">
             {buckets.landed.map((f) => <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} onLinkConnection={onLinkConnection} />)}
             {jb.landed.map((item) => <JourneyCard key={item.id} item={item} onOpen={onOpen} now={now} />)}
           </div>
         </section>
       )}
+
+      {/* Upcoming — last: taking-off-soon and further-out scheduled trips together. */}
+      <section className="rail">
+        <SectionHead kicker="What's next" title="Upcoming" count={upcomingCount} />
+        {upcomingCount === 0
+          ? <EmptyRow text="No upcoming trips. Tell the family to start planning something!" />
+          : (
+            <div className="rail__grid">
+              {remainingBoarding.map((f) => (
+                <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} onLinkConnection={onLinkConnection} />
+              ))}
+              {jb.boarding.map((item) => <JourneyCard key={item.id} item={item} onOpen={onOpen} now={now} />)}
+              {buckets.scheduled.map((f) => <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} onLinkConnection={onLinkConnection} />)}
+              {jb.scheduled.map((item) => <JourneyCard key={item.id} item={item} onOpen={onOpen} now={now} />)}
+            </div>
+          )
+        }
+      </section>
 
       {/* CTA */}
       <section className="cta">
@@ -462,7 +480,7 @@ function HeroBoarding({ flight, now, onOpen }) {
 }
 
 // ── TravelersView ───────────────────────────────────────────────────────────
-function TravelersView({ allFlights, now, onSelectPerson }) {
+function TravelersView({ allFlights, now, onSelectPerson, onHomeChanged }) {
   // Build per-person stats.
   const stats = FAMILY.map((p) => {
     const flown = allFlights.filter((f) => f.travelers.includes(p.id));
@@ -516,6 +534,40 @@ function TravelersView({ allFlights, now, onSelectPerson }) {
     });
   };
 
+  // Home airport — editable inline, right on the card. This is what
+  // suppresses the "return not logged" nudge when someone lands exactly
+  // where they live (see isHomeArrival, data.js), so it needs to be
+  // something anyone in the family can correct without asking for help.
+  const [homeEditing, setHomeEditing] = React.useState(null); // personId
+  const [homeDraft, setHomeDraft] = React.useState("");
+  const [homeSaving, setHomeSaving] = React.useState(false);
+  const [homeError, setHomeErrorFor] = React.useState(null);
+
+  const startEditingHome = (p) => {
+    setHomeEditing(p.id);
+    setHomeDraft(p.homeAirport ? placeDisplay(p.homeAirport) : "");
+    setHomeErrorFor(null);
+  };
+
+  const saveHome = (personId) => {
+    const code = homeDraft ? placeCode(homeDraft) : null;
+    setHomeSaving(true);
+    window.supabaseClient.functions.invoke("update-home", {
+      body: { personId, homeAirport: code },
+    }).then(({ data, error }) => {
+      setHomeSaving(false);
+      if (error || !data || !data.ok) {
+        setHomeErrorFor((data && data.error) || "Couldn't save that — mind trying again?");
+        return;
+      }
+      setHomeEditing(null);
+      onHomeChanged();
+    }).catch((err) => {
+      setHomeSaving(false);
+      setHomeErrorFor(String((err && err.message) || err));
+    });
+  };
+
   return (
     <div className="travelers" data-screen-label="02 Travelers">
       <SectionHead kicker="The roster" title="Everyone tracked here" sub="Tap a face to see only their flights on the board. Tap the upload icon to add or change a photo." />
@@ -527,7 +579,6 @@ function TravelersView({ allFlights, now, onSelectPerson }) {
               <Avatar person={p} size={64} />
               <div className="trav-card__name">{p.nick ? <><span className="trav-card__nick">{p.nick}</span> · {p.first} {p.last}</> : <>{p.first} {p.last}</>}</div>
               {p.role && <div className="trav-card__role">{p.role}</div>}
-              {p.home && <div className="trav-card__home">📍 {p.home}</div>}
               <div className="trav-card__stats">
                 <div><strong>{total}</strong><span>flights</span></div>
                 <div><strong>{upcoming}</strong><span>upcoming</span></div>
@@ -567,9 +618,37 @@ function TravelersView({ allFlights, now, onSelectPerson }) {
                 </>
               )}
             </label>
+            <div className="trav-card__home" onClick={(e) => e.stopPropagation()}>
+              {homeEditing === p.id ? (
+                <div className="trav-card__home-edit">
+                  <input
+                    list="trav-airport-list"
+                    value={homeDraft}
+                    onChange={(e) => setHomeDraft(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") saveHome(p.id); if (e.key === "Escape") setHomeEditing(null); }}
+                    placeholder="City or airport"
+                    autoFocus
+                  />
+                  <div className="trav-card__home-actions">
+                    <button onClick={() => saveHome(p.id)} disabled={homeSaving}>{homeSaving ? "…" : "Save"}</button>
+                    <button onClick={() => setHomeEditing(null)} disabled={homeSaving}>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <button className="trav-card__home-btn" onClick={() => startEditingHome(p)}>
+                  🏠 {p.homeAirport ? airport(p.homeAirport).city : "Set home city"}
+                </button>
+              )}
+              {homeError && homeEditing === p.id && <div className="trav-card__home-error">{homeError}</div>}
+            </div>
           </div>
         ))}
       </div>
+      <datalist id="trav-airport-list">
+        {Object.entries(AIRPORTS).map(([code, a]) => (
+          <option key={code} value={`${a.city} (${code})`}>{a.city}, {a.country}</option>
+        ))}
+      </datalist>
     </div>
   );
 }

@@ -244,14 +244,18 @@ function BoardingPassStrip({ flight, dense = false }) {
 // scheduled-date display, which is deliberately local-calendar); any math
 // against `now` uses `departReal`/`arriveReal` (see flightRealDepart in
 // data.js) so it reflects the actual elapsed/remaining time, not a value
-// skewed by the airport's UTC offset.
-function cardLead({ status, isFlight, name, now, depart, arrive, departReal, arriveReal, layoverCity }) {
+// skewed by the airport's UTC offset. `travelers` is the full list — the
+// headline names everyone aboard ("Nihar & Roopal"), not just the first
+// person, and conjugates is/are, takes/take, flies/fly to match.
+function cardLead({ status, isFlight, travelers, now, depart, arrive, departReal, arriveReal, layoverCity }) {
   const dep = departReal ?? depart, arr = arriveReal ?? arrive;
+  const name = travelers.map((p) => p.first).join(" & ");
+  const plural = travelers.length > 1;
   if (status === "boarding") {
     return (
       <>
         <span className="card__lead-name">{name}</span>
-        <span className="card__lead-verb"> takes off in </span>
+        <span className="card__lead-verb">{plural ? " take off in " : " takes off in "}</span>
         <span className="card__lead-time">{fmtDuration(dep - now)}</span>
       </>
     );
@@ -260,7 +264,9 @@ function cardLead({ status, isFlight, name, now, depart, arrive, departReal, arr
     return (
       <>
         <span className="card__lead-name">{name}</span>
-        <span className="card__lead-verb">{isFlight ? " is in the air" : " is traveling"}</span>
+        <span className="card__lead-verb">
+          {isFlight ? (plural ? " are in the air" : " is in the air") : (plural ? " are traveling" : " is traveling")}
+        </span>
       </>
     );
   }
@@ -268,7 +274,7 @@ function cardLead({ status, isFlight, name, now, depart, arrive, departReal, arr
     return (
       <>
         <span className="card__lead-name">{name}</span>
-        <span className="card__lead-verb"> is on a layover in </span>
+        <span className="card__lead-verb">{plural ? " are on a layover in " : " is on a layover in "}</span>
         <span className="card__lead-time">{layoverCity}</span>
       </>
     );
@@ -288,7 +294,9 @@ function cardLead({ status, isFlight, name, now, depart, arrive, departReal, arr
   return (
     <>
       <span className="card__lead-name">{name}</span>
-      <span className="card__lead-verb">{isFlight ? " flies on " : " leaves on "}</span>
+      <span className="card__lead-verb">
+        {isFlight ? (plural ? " fly on " : " flies on ") : (plural ? " leave on " : " leaves on ")}
+      </span>
       <span className="card__lead-time">{fmtDateShort(depart)}</span>
     </>
   );
@@ -315,7 +323,9 @@ function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn, onLi
   const from = { ...airport(flight.from), code: flight.from };
   const to   = { ...airport(flight.to),   code: flight.to };
   const travelers = flight.travelers.map(familyById).filter(Boolean);
-  const noReturn = status === "landed" && allFlights && !hasLoggedReturn(flight, allFlights);
+  // Worth flagging at any stage of the trip, not just after landing — and
+  // never when everyone aboard is simply arriving home (see isHomeArrival).
+  const noReturn = allFlights && !hasLoggedReturn(flight, allFlights) && !window.MGData.isHomeArrival(flight);
   // Two boarding passes logged separately that plausibly connect — offer to
   // link them into one journey card (the retroactive counterpart to ticking
   // "this is a connecting flight" during upload). Never offered once a
@@ -339,7 +349,7 @@ function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn, onLi
       </div>
       <div className="card__lead">
         {cardLead({
-          status, isFlight, name: travelers[0]?.first, now,
+          status, isFlight, travelers, now,
           depart: flight.depart, arrive: flight.arrive,
           departReal: flightRealDepart(flight), arriveReal: flightRealArrive(flight),
         })}
@@ -388,7 +398,11 @@ function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn, onLi
             : `Connects from ${airport(connection.from).city} — link as one trip?`}
         </button>
       )}
-      {isFlight && (
+      {/* FlightAware's per-number page shows whichever instance of that
+          number is currently live/most recent — for a flight booked far
+          ahead, that's a different day's flight, not this one. Only link
+          once it's close enough to actually be this flight. */}
+      {isFlight && flightRealDepart(flight) - now <= hours(48) && (
         <a
           className="fa-link card__fa"
           href={flightAwareUrl(flight)}
@@ -443,7 +457,7 @@ function JourneyCard({ item, onOpen, now }) {
       </div>
       <div className="card__lead">
         {cardLead({
-          status, isFlight, name: travelers[0]?.first, now,
+          status, isFlight, travelers, now,
           depart: first.depart, arrive: last.arrive,
           departReal: flightRealDepart(first), arriveReal: flightRealArrive(last),
           layoverCity,
@@ -478,7 +492,7 @@ function JourneyCard({ item, onOpen, now }) {
       {item.summary.note && travelers.length === 1 && (
         <div className="card__note">"{item.summary.note.length > 80 ? item.summary.note.slice(0, 80) + "…" : item.summary.note}"</div>
       )}
-      {isFlight && (
+      {isFlight && flightRealDepart(faLeg) - now <= hours(48) && (
         <a
           className="fa-link card__fa"
           href={flightAwareUrl(faLeg)}

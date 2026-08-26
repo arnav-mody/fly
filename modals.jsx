@@ -3,13 +3,13 @@
 const { FAMILY: _FAM, FLIGHTS: _FLT, AIRLINES: _AL, AIRPORTS: _AP } = window.MGData;
 const _flightStatus = window.MGData.flightStatus;
 const _familyById   = window.MGData.familyById;
-const _airline      = window.MGData.airline;
 const _airport      = window.MGData.airport;
 const _flightAwareUrl = window.MGData.flightAwareUrl;
 const _modeOf   = window.MGData.modeOf;
 const _modeMeta = window.MGData.modeMeta;
 const _MODE     = window.MGData.MODE_META;
 const _hasLoggedReturn = window.MGData.hasLoggedReturn;
+const _hasCoords = window.MGData.hasCoords;
 
 // supabase-js only exposes a generic "Edge Function returned a non-2xx
 // status code" on failure — it doesn't parse the response body for you. The
@@ -121,11 +121,10 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
   const mode     = _modeOf(firstLeg);
   const isFlight = mode === "flight";
   const meta     = _modeMeta(firstLeg);
-  const al       = _airline(firstLeg.airline);
   const from     = { ..._airport(firstLeg.from), code: firstLeg.from };
   const to       = { ..._airport(lastLeg.to),    code: lastLeg.to };
   const travelers = firstLeg.travelers.map(_familyById).filter(Boolean);
-  const noReturn = (status === "landed" || status === "past") && allFlights && !_hasLoggedReturn(lastLeg, allFlights);
+  const noReturn = allFlights && !_hasLoggedReturn(lastLeg, allFlights) && !window.MGData.isHomeArrival(lastLeg);
   const airborneLeg = isJourney ? legs.find((l) => _flightStatus(l, now) === "airborne") : flight;
   // The leg currently underway during a layover — i.e. which gap in the
   // chain "now" falls into — so the detail panel can name the right city.
@@ -156,6 +155,14 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
     });
   };
 
+  // FlightAware's per-flight-number page shows whichever instance of that
+  // number is currently live/most-recent — for a flight booked far ahead,
+  // that's a *different day's* flight, not this one, which is misleading
+  // rather than just unavailable. Only offer the link once it's close
+  // enough to actually be about this flight: within 48h of departure,
+  // through touchdown.
+  const faTrackable = (leg) => window.MGData.flightRealDepart(leg).getTime() - now.getTime() <= hours(48);
+
   return (
     <Modal open={!!flight} onClose={onClose} size="lg">
       <div className="fd">
@@ -164,14 +171,6 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
           <div className="fd__hero-inner">
             <div className="fd__statusrow">
               <StatusPill status={status} mode={mode} />
-              <span className="fd__id">
-                {isJourney
-                  ? <span style={{ fontWeight: 700 }}>{legs.length} legs</span>
-                  : isFlight
-                    ? <><span style={{ color: al.color, fontWeight: 700 }}>{flight.airline}</span>{flight.number}</>
-                    : <span style={{ fontWeight: 700 }}>{meta.icon} {meta.label}</span>}
-                {" · "}{fmtDuration(window.MGData.flightRealArrive(lastLeg) - window.MGData.flightRealDepart(firstLeg))}
-              </span>
             </div>
             <h1 className="fd__title">
               <span className="fd__city">
@@ -193,11 +192,11 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
                 showing both back to back was pure repetition. */}
             {status !== "airborne" && (
               <div className="fd__map">
-                {!isFlight
-                  ? <div className="tcard__mode-block" style={{ height: 90, fontSize: "1.6rem" }}>{meta.icon}</div>
+                {!isFlight || !_hasCoords(from, to)
+                  ? <div className="tcard__mode-block" style={{ height: 160, fontSize: "1.8rem" }}>{meta.icon}</div>
                   : isJourney
-                    ? <MultiRouteRibbon legs={legs} status={status} now={now} height={90} showLabels />
-                    : <RouteRibbon from={from} to={to} progress={window.MGData.flightProgress(flight, now)} status={status} />}
+                    ? <JourneyRouteMap legs={legs} now={now} height={220} />
+                    : <RouteMap from={from} to={to} progress={window.MGData.flightProgress(flight, now)} status={status} height={220} />}
               </div>
             )}
           </div>
@@ -242,13 +241,15 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
           </div>
         )}
 
-        {/* Itinerary details */}
+        {/* Itinerary details — the same compact Flight/Depart/Arrive/Duration
+            row the board cards use, once per leg (just one row for a
+            nonstop flight, so no separate summary line duplicating it). */}
         <div className="fd__details">
           <h3 className="fd__h">Itinerary</h3>
           {legs.map((leg, i) => (
             <React.Fragment key={leg.id}>
               <BoardingPassStrip flight={leg} />
-              {isFlight && (
+              {isFlight && faTrackable(leg) && (
                 <a className="fa-link fd__fa" href={_flightAwareUrl(leg)} target="_blank" rel="noopener noreferrer">
                   Track live on FlightAware <span className="fa-link__arrow">↗</span>
                 </a>

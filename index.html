@@ -605,9 +605,6 @@
       gap: 16px; flex-wrap: wrap; margin-bottom: 12px;
       padding-right: 44px; /* clears the close button, which floats independently of this row */
     }
-    .fd__id {
-      font-family: var(--font-mono); font-size: 0.78rem; color: var(--ink-soft);
-    }
     .fd__title {
       font-family: var(--font-serif); font-weight: 400; font-size: clamp(2rem, 4vw, 3.4rem);
       line-height: 1; letter-spacing: -0.015em;
@@ -637,7 +634,7 @@
     }
     .fd__arrow { color: var(--accent); }
     .fd__map { margin-top: 20px; border-radius: 16px; overflow: hidden; background: var(--paper); }
-    .fd__map .route-ribbon { width: 100%; height: 90px; }
+    .fd__map .route-map { width: 100%; height: auto; display: block; }
 
     .fd__statusdetail { padding: 28px 36px; border-bottom: 0.5px solid var(--paper-line); }
     .fd__landed { display: flex; align-items: center; gap: 16px; }
@@ -887,7 +884,25 @@
     .trav-card__name { font-family: var(--font-serif); font-size: 1.02rem; margin-top: 4px; letter-spacing: -0.01em; }
     .trav-card__nick { color: var(--accent); font-style: italic; }
     .trav-card__role { font-size: 0.74rem; color: var(--ink-soft); }
-    .trav-card__home { font-family: var(--font-mono); font-size: 0.66rem; color: var(--ink-faint); margin-top: 2px; }
+    .trav-card__home { text-align: center; margin-top: 6px; }
+    .trav-card__home-btn {
+      appearance: none; border: 0; background: none; cursor: pointer;
+      font: inherit; font-family: var(--font-mono); font-size: 0.7rem; color: var(--ink-faint);
+      padding: 2px 6px; border-radius: 999px;
+    }
+    .trav-card__home-btn:hover { color: var(--accent); background: var(--paper-deeper); }
+    .trav-card__home-edit { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+    .trav-card__home-edit input {
+      font: inherit; font-size: 0.78rem; padding: 6px 8px; border-radius: 8px;
+      border: 0.5px solid var(--paper-line); background: var(--paper); color: inherit; text-align: center;
+    }
+    .trav-card__home-edit button {
+      appearance: none; border: 0.5px solid var(--paper-line); background: var(--paper-soft);
+      font: inherit; font-size: 0.72rem; padding: 4px 8px; border-radius: 999px; cursor: pointer;
+    }
+    .trav-card__home-actions { display: flex; gap: 6px; justify-content: center; }
+    .trav-card__home-edit button:first-of-type { border-color: var(--accent); color: var(--accent); }
+    .trav-card__home-error { color: var(--warn); font-size: 0.7rem; margin-top: 4px; }
     .trav-card__stats {
       display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
       width: 100%; margin-top: 8px; padding-top: 8px;
