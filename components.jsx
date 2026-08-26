@@ -340,6 +340,13 @@ function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn, onLi
   // + boarding-pass strip right under it would just repeat all of that.
   const showProgress = status === "airborne" && isFlight;
   const arriveViewerTime = showProgress ? window.MGData.viewerTime(flight.arrive, to) : null;
+  // FlightAware's per-number page shows whichever instance of that number
+  // is currently live/most recent — for a flight booked far ahead, that's
+  // a different day's flight, not this one. Only link once it's close
+  // enough to actually be this flight, and only when we have a real
+  // FlightAware URL for it (flightAwareUrl returns null for airlines
+  // without a confirmed ICAO code, which the link needs to resolve at all).
+  const faUrl = isFlight && flightRealDepart(flight) - now <= hours(48) ? flightAwareUrl(flight) : null;
 
   return (
     <article className={`card card--${status}`} onClick={() => onOpen(flight)} data-comment-anchor={`card-${flight.id}`}>
@@ -398,14 +405,10 @@ function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn, onLi
             : `Connects from ${airport(connection.from).city} — link as one trip?`}
         </button>
       )}
-      {/* FlightAware's per-number page shows whichever instance of that
-          number is currently live/most recent — for a flight booked far
-          ahead, that's a different day's flight, not this one. Only link
-          once it's close enough to actually be this flight. */}
-      {isFlight && flightRealDepart(flight) - now <= hours(48) && (
+      {faUrl && (
         <a
           className="fa-link card__fa"
-          href={flightAwareUrl(flight)}
+          href={faUrl}
           target="_blank" rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
         >
@@ -438,6 +441,7 @@ function JourneyCard({ item, onOpen, now }) {
   const layoverCity = layoverIdx >= 0 ? airport(legs[layoverIdx].to).city : null;
   const airborneLeg = legs.find((l) => flightStatus(l, now) === "airborne");
   const faLeg = airborneLeg || first;
+  const faUrl = isFlight && flightRealDepart(faLeg) - now <= hours(48) ? flightAwareUrl(faLeg) : null;
 
   const pillLabel = scheduledPillLabel(status, flightRealDepart(first), now);
   const journeyFlight = { ...item.summary, id: item.id, legs, journeyId: item.id };
@@ -492,10 +496,10 @@ function JourneyCard({ item, onOpen, now }) {
       {item.summary.note && travelers.length === 1 && (
         <div className="card__note">"{item.summary.note.length > 80 ? item.summary.note.slice(0, 80) + "…" : item.summary.note}"</div>
       )}
-      {isFlight && flightRealDepart(faLeg) - now <= hours(48) && (
+      {faUrl && (
         <a
           className="fa-link card__fa"
-          href={flightAwareUrl(faLeg)}
+          href={faUrl}
           target="_blank" rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
         >

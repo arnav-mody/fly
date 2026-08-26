@@ -208,17 +208,32 @@ const AIRPORTS = {
   CMN: { city: "Casablanca",    country: "Morocco",      name: "Mohammed V Intl", lat: 33.37, lon: -7.59, tz: "WEST", tzId: "Africa/Casablanca" },
 };
 
-// Airline metadata — shows up on cards and flight detail.
+// Airline metadata — shows up on cards and flight detail. `icao` is the
+// 3-letter code FlightAware's per-flight URLs actually key off of — its
+// live-tracking idents are ICAO-based ("AIC681"), not the IATA code printed
+// on the ticket ("AI681"); a plain IATA-prefixed URL resolves to the wrong
+// flight (or nothing) more often than not. See flightAwareUrl below.
 const AIRLINES = {
-  AI: { name: "Air India",        color: "#c8102e" },
-  UA: { name: "United",           color: "#005daa" },
-  AS: { name: "Alaska Airlines",  color: "#003561" },
-  DL: { name: "Delta",            color: "#9b1c2e" },
-  BA: { name: "British Airways",  color: "#075aaa" },
-  WN: { name: "Southwest",        color: "#f9b612" },
-  AA: { name: "American",         color: "#0078d2" },
-  EK: { name: "Emirates",         color: "#d71a21" },
-  AF: { name: "Air France",       color: "#002157" },
+  AI: { name: "Air India",        color: "#c8102e", icao: "AIC" },
+  UA: { name: "United",           color: "#005daa", icao: "UAL" },
+  AS: { name: "Alaska Airlines",  color: "#003561", icao: "ASA" },
+  DL: { name: "Delta",            color: "#9b1c2e", icao: "DAL" },
+  BA: { name: "British Airways",  color: "#075aaa", icao: "BAW" },
+  WN: { name: "Southwest",        color: "#f9b612", icao: "SWA" },
+  AA: { name: "American",         color: "#0078d2", icao: "AAL" },
+  EK: { name: "Emirates",         color: "#d71a21", icao: "UAE" },
+  AF: { name: "Air France",       color: "#002157", icao: "AFR" },
+  EY: { name: "Etihad Airways",   color: "#bd8b13", icao: "ETD" },
+  QR: { name: "Qatar Airways",    color: "#5c0632", icao: "QTR" },
+  LH: { name: "Lufthansa",        color: "#05164d", icao: "DLH" },
+  VS: { name: "Virgin Atlantic",  color: "#e10a0a", icao: "VIR" },
+  SQ: { name: "Singapore Airlines", color: "#f99f1c", icao: "SIA" },
+  CX: { name: "Cathay Pacific",   color: "#00644e", icao: "CPA" },
+  TK: { name: "Turkish Airlines", color: "#c70a0c", icao: "THY" },
+  LX: { name: "Swiss",            color: "#cc0000", icao: "SWR" },
+  KL: { name: "KLM",              color: "#00a1de", icao: "KLM" },
+  "6E": { name: "IndiGo",         color: "#00205b", icao: "IGO" },
+  UK: { name: "Vistara",          color: "#4c2882", icao: "VTI" },
 };
 
 // helpers ────────────────────────────────────────────────────────────────────
@@ -399,9 +414,18 @@ function flightProgress(f, now = new Date()) {
   return Math.max(0, Math.min(1, (now.getTime() - dep) / total));
 }
 
-// FlightAware live-tracking link for a given flight (airline code + number).
-// Only meaningful for mode: 'flight' — callers should gate on that.
-const flightAwareUrl = (f) => `https://www.flightaware.com/live/flight/${f.airline}${f.number}`;
+// FlightAware live-tracking link for a given flight. FlightAware's
+// per-flight idents are ICAO-based (Air India AI681 is "AIC681" there, not
+// the IATA "AI681" printed on the ticket) — see the `icao` field on
+// AIRLINES. Returns null rather than a link we know resolves to the wrong
+// flight (or nothing) when we don't have a confirmed ICAO code for this
+// airline, or there's no flight number to build an ident from. Only
+// meaningful for mode: 'flight' — callers should gate on that too.
+const flightAwareUrl = (f) => {
+  const icao = AIRLINES[f.airline]?.icao;
+  if (!icao || !f.number) return null;
+  return `https://www.flightaware.com/live/flight/${icao}${f.number}`;
+};
 
 // ── connecting flights ──────────────────────────────────────────────────────
 // Two legs uploaded separately (two boarding passes) are really one journey

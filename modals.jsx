@@ -159,9 +159,10 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
   // number is currently live/most-recent — for a flight booked far ahead,
   // that's a *different day's* flight, not this one, which is misleading
   // rather than just unavailable. Only offer the link once it's close
-  // enough to actually be about this flight: within 48h of departure,
-  // through touchdown.
-  const faTrackable = (leg) => window.MGData.flightRealDepart(leg).getTime() - now.getTime() <= hours(48);
+  // enough to actually be about this flight (within 48h of departure,
+  // through touchdown) and only when flightAwareUrl actually has a
+  // FlightAware-recognized ICAO code to build a real link from.
+  const faUrlFor = (leg) => window.MGData.flightRealDepart(leg).getTime() - now.getTime() <= hours(48) ? _flightAwareUrl(leg) : null;
 
   return (
     <Modal open={!!flight} onClose={onClose} size="lg">
@@ -249,8 +250,8 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
           {legs.map((leg, i) => (
             <React.Fragment key={leg.id}>
               <BoardingPassStrip flight={leg} />
-              {isFlight && faTrackable(leg) && (
-                <a className="fa-link fd__fa" href={_flightAwareUrl(leg)} target="_blank" rel="noopener noreferrer">
+              {isFlight && faUrlFor(leg) && (
+                <a className="fa-link fd__fa" href={faUrlFor(leg)} target="_blank" rel="noopener noreferrer">
                   Track live on FlightAware <span className="fa-link__arrow">↗</span>
                 </a>
               )}
