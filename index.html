@@ -629,15 +629,21 @@
     .fd__statusrow {
       display: flex; justify-content: space-between; align-items: center;
       gap: 16px; flex-wrap: wrap; margin-bottom: 12px;
+      padding-right: 44px; /* clears the close button, which floats independently of this row */
     }
     .fd__id {
       font-family: var(--font-mono); font-size: 0.78rem; color: var(--ink-soft);
     }
-    .fd__id-sep { margin: 0 8px; color: var(--ink-faint); }
     .fd__title {
       font-family: var(--font-serif); font-weight: 400; font-size: clamp(2rem, 4vw, 3.4rem);
       line-height: 1; letter-spacing: -0.015em;
       display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+    }
+    /* Was buried in the small status row (right where the close button sits)
+       and easy to miss entirely — now its own clear, prominent line. */
+    .fd__date {
+      font-family: var(--font-serif); font-size: 1.15rem; color: var(--ink);
+      margin-top: 8px;
     }
     .fd__city { display: flex; flex-direction: column; align-items: flex-start; }
     .fd__city-name { line-height: 1; }
@@ -686,17 +692,6 @@
       font-family: var(--font-serif); font-weight: 400; font-size: 1.4rem;
       letter-spacing: -0.01em; margin-bottom: 14px;
     }
-    .fd__grid {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: 16px; margin-top: 14px;
-    }
-    .detail-field { display: flex; flex-direction: column; gap: 3px; }
-    .detail-field__lbl {
-      font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.1em;
-      text-transform: uppercase; color: var(--ink-faint);
-    }
-    .detail-field__val { font-size: 1rem; font-weight: 500; color: var(--ink); }
-    .detail-field__val--mono { font-family: var(--font-mono); }
 
     .fd__travelers { display: flex; flex-wrap: wrap; gap: 18px; }
     .fd__traveler { display: flex; align-items: center; gap: 12px; }

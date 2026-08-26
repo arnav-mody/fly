@@ -85,7 +85,7 @@ function AvatarStack({ ids, size = 32 }) {
 }
 
 // ── StatusPill ──────────────────────────────────────────────────────────────
-function StatusPill({ status, mode = "flight" }) {
+function StatusPill({ status, mode = "flight", label }) {
   const labels = {
     airborne:  { txt: mode === "flight" ? "In the air" : "Traveling", cls: "pill--air" },
     boarding:  { txt: "Taking off soon",  cls: "pill--soon" },
@@ -97,7 +97,7 @@ function StatusPill({ status, mode = "flight" }) {
   return (
     <span className={`pill ${l.cls}`}>
       <span className="pill__dot" />
-      {l.txt}
+      {label || l.txt}
     </span>
   );
 }
@@ -263,23 +263,32 @@ function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn }) {
       </>
     );
   } else {
-    // scheduled / upcoming
-    const diff = flight.depart - now;
-    const days = Math.floor(diff / 86400000);
+    // scheduled / upcoming — the actual date, not a relative countdown;
+    // the countdown lives in the status pill instead (see daysToGo below)
+    // so it doesn't have to fight the headline for space.
     lead = (
       <>
         <span className="card__lead-name">{travelers[0]?.first}</span>
-        <span className="card__lead-verb"> flies in </span>
-        <span className="card__lead-time">{days === 0 ? "today" : `${days} day${days === 1 ? "" : "s"}`}</span>
+        <span className="card__lead-verb">{isFlight ? " flies on " : " leaves on "}</span>
+        <span className="card__lead-time">{fmtDateShort(flight.depart)}</span>
       </>
     );
+  }
+
+  // A close departure is worth calling out in the status pill up top
+  // ("3 days to go") instead of the generic "Upcoming" — anything a week
+  // or further out just isn't as time-sensitive.
+  let pillLabel;
+  if (status === "scheduled") {
+    const days = Math.floor((flight.depart - now) / 86400000);
+    if (days < 7) pillLabel = days <= 0 ? "Today" : `${days} day${days === 1 ? "" : "s"} to go`;
   }
 
   return (
     <article className={`card card--${status}`} onClick={() => onOpen(flight)} data-comment-anchor={`card-${flight.id}`}>
       <div className="card__top">
         <AvatarStack ids={flight.travelers} size={32} />
-        <StatusPill status={status} mode={mode} />
+        <StatusPill status={status} mode={mode} label={pillLabel} />
       </div>
       <div className="card__lead">{lead}</div>
       <div className="card__cities">

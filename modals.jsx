@@ -158,8 +158,6 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
                 {isFlight
                   ? <><span style={{ color: al.color, fontWeight: 700 }}>{flight.airline}</span>{flight.number}</>
                   : <span style={{ fontWeight: 700 }}>{meta.icon} {meta.label}</span>}
-                <span className="fd__id-sep">·</span>
-                {fmtDateLong(flight.depart)}
               </span>
             </div>
             <h1 className="fd__title">
@@ -173,6 +171,7 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
                 {isFlight && <span className="fd__city-code">{to.code}</span>}
               </span>
             </h1>
+            <div className="fd__date">{fmtDateLong(flight.depart)}</div>
             <div className="fd__map">
               {isFlight && _hasCoords(from, to)
                 ? <RouteMap from={from} to={to} progress={flight.progress ?? 0} status={status} height={280} />
@@ -229,23 +228,14 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
             </button>
           )}
           {isFlight && (
-            <>
-              <div className="fd__grid">
-                <DetailField label="Confirmation" value={flight.confirmation ?? "—"} mono />
-                <DetailField label="Terminal" value={flight.terminal ?? "—"} mono />
-                <DetailField label="Gate" value={flight.gate ?? "—"} mono />
-                <DetailField label="Seat" value={flight.seat ?? "—"} mono />
-                <DetailField label="Aircraft" value={flight.aircraft ?? "—"} />
-                <DetailField label="Operated by" value={al.name} />
-              </div>
-              <a
-                className="fa-link fd__fa"
-                href={_flightAwareUrl(flight)}
-                target="_blank" rel="noopener noreferrer"
-              >
-                Track live on FlightAware <span className="fa-link__arrow">↗</span>
-              </a>
-            </>
+            <a
+              className="fa-link fd__fa"
+              href={_flightAwareUrl(flight)}
+              target="_blank" rel="noopener noreferrer"
+            >
+              Track live on FlightAware <span className="fa-link__arrow">↗</span>
+            </a>
+          )}
           )}
         </div>
 
@@ -302,15 +292,6 @@ function Stat({ label, value }) {
     </div>
   );
 }
-function DetailField({ label, value, mono }) {
-  return (
-    <div className="detail-field">
-      <div className="detail-field__lbl">{label}</div>
-      <div className={`detail-field__val ${mono ? "detail-field__val--mono" : ""}`}>{value}</div>
-    </div>
-  );
-}
-
 // ── AddTrip modal ───────────────────────────────────────────────────────────
 // One screen: the upload button, the paste-toggle, and the review/edit form
 // are all visible together from the moment the modal opens — no click-through
