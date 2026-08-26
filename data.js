@@ -236,8 +236,15 @@ const FLIGHTS = [];
 // a verified flight state. "landed" is time-boxed to 24h so a completed
 // flight ages off the live board on its own; after that it's "past" and
 // only visible in Calendar, which just lists what was actually logged.
+//
+// Compares against the flight's *real* UTC instant (see flightRealDepart/
+// flightRealArrive below), not the naive stored digits — comparing naive
+// digits directly against a real "now" silently drifts by the size of the
+// airport's UTC offset (flips to "landed" hours early for US airports,
+// hours late for India/Gulf/Asia/Australia ones) since the naive value
+// isn't actually the same instant as the real clock reads.
 function flightStatus(f, now = new Date()) {
-  const dep = f.depart.getTime(), arr = f.arrive.getTime(), n = now.getTime();
+  const dep = flightRealDepart(f).getTime(), arr = flightRealArrive(f).getTime(), n = now.getTime();
   if (n >= arr + hours(24))                return "past";
   if (n >= arr)                             return "landed";
   if (n >= dep)                             return "airborne";
@@ -309,26 +316,41 @@ function zonedWallClockToUtc(wallClockDate, tzId) {
   return new Date(guess);
 }
 
+// The real UTC instant a stored "naive" flight time represents, given the
+// airport it belongs to — or the naive value unchanged if we don't know that
+// airport's real zone (nothing better to go on). Used for any comparison
+// against a live `now`; see flightRealDepart/flightRealArrive below.
+function realInstant(naiveDate, airportEntry) {
+  return airportEntry?.tzId ? zonedWallClockToUtc(naiveDate, airportEntry.tzId) : naiveDate;
+}
+
 // The viewer's own IANA zone, resolved once from the browser.
 const VIEWER_TZ = (() => {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return null; }
 })();
 
 // Given a stored "naive UTC" flight time and the airport it belongs to,
-// return { time: "9:40 AM", dayShift: -1 | 0 | 1 } in the viewer's own zone —
-// dayShift tells the caller whether that's the day before/same/after the
-// airport-local date, so the UI can flag "(next day for you)". Returns null
-// when we can't do the conversion honestly (no known zone for this airport,
-// or the browser's own zone couldn't be resolved) rather than guess.
+// return { time: "9:40 AM", tzAbbrev: "EST", dayShift: -1 | 0 | 1 } in the
+// viewer's own zone — dayShift tells the caller whether that's the day
+// before/same/after the airport-local date, so the UI can flag "+1d". The
+// zone abbreviation is shown alongside the time rather than a vague "your
+// time" label: if the browser's guess at the viewer's zone is ever wrong,
+// naming the zone we actually used keeps the claim checkable instead of
+// silently asserting a time that might not be right. Returns null when we
+// can't do the conversion honestly (no known zone for this airport, or the
+// browser's own zone couldn't be resolved) rather than guess.
 function viewerTime(flightTime, airportEntry) {
   if (!VIEWER_TZ || !airportEntry?.tzId) return null;
   if (airportEntry.tzId === VIEWER_TZ) return null; // same zone — a second line would be redundant
   const real = zonedWallClockToUtc(flightTime, airportEntry.tzId);
-  const timeStr = real.toLocaleString("en-US", { hour: "numeric", minute: "2-digit", timeZone: VIEWER_TZ });
+  // 24h, matching fmtTime's boarding-pass-style primary time elsewhere.
+  const timeStr = real.toLocaleString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: VIEWER_TZ });
+  const tzParts = new Intl.DateTimeFormat("en-US", { timeZone: VIEWER_TZ, timeZoneName: "short", hour: "numeric" }).formatToParts(real);
+  const tzAbbrev = tzParts.find((p) => p.type === "timeZoneName")?.value || "";
   const viewerYmd = real.toLocaleString("en-CA", { timeZone: VIEWER_TZ }).slice(0, 10); // YYYY-MM-DD
   const airportYmd = `${flightTime.getUTCFullYear()}-${String(flightTime.getUTCMonth() + 1).padStart(2, "0")}-${String(flightTime.getUTCDate()).padStart(2, "0")}`;
   const dayShift = viewerYmd === airportYmd ? 0 : (viewerYmd > airportYmd ? 1 : -1);
-  return { time: timeStr, dayShift };
+  return { time: timeStr, tzAbbrev, dayShift };
 }
 
 // Convenience getters. Airline/airport codes can now be free-typed (see
@@ -339,6 +361,32 @@ function viewerTime(flightTime, airportEntry) {
 const familyById  = (id) => FAMILY.find((p) => p.id === id);
 const airline     = (code) => AIRLINES[code] || { code: code || "", name: code || "—", color: "var(--ink-soft)" };
 const airport     = (code) => AIRPORTS[code] || { code: code || "", city: code || "—", country: "", name: code || "" };
+
+// The flight's real UTC instant — reinterprets the stored "naive" digits as
+// wall-clock time at the actual airport and converts using its real IANA
+// zone (see zonedWallClockToUtc above), falling back to the naive value
+// unchanged when the airport's zone isn't known (unrecognized code, or
+// train/car's free-text place) since there's no better information to go
+// on. Anything comparing a flight's depart/arrive against a live `now` —
+// status, countdowns, progress bars — must use these, not the raw
+// f.depart/f.arrive, or the comparison silently drifts by the size of
+// whatever UTC offset the naive digits were never actually adjusted for.
+// f.depart/f.arrive stay exactly as stored for *display* (fmtTime etc.),
+// which is deliberately airport-local and doesn't need this conversion.
+function flightRealDepart(f) { return realInstant(f.depart, airport(f.from)); }
+function flightRealArrive(f) { return realInstant(f.arrive, airport(f.to)); }
+
+// How far along a flight is right now, 0..1, for the animated plane on
+// RouteMap/RouteRibbon. Computed live from the real depart/arrive instants
+// and `now` — there's no stored "progress" field (nothing populates one),
+// so callers should always derive it this way rather than reading
+// flight.progress directly.
+function flightProgress(f, now = new Date()) {
+  const dep = flightRealDepart(f).getTime(), arr = flightRealArrive(f).getTime();
+  const total = arr - dep;
+  if (total <= 0) return 0;
+  return Math.max(0, Math.min(1, (now.getTime() - dep) / total));
+}
 
 // FlightAware live-tracking link for a given flight (airline code + number).
 // Only meaningful for mode: 'flight' — callers should gate on that.
@@ -426,7 +474,7 @@ function journeyStatus(legs, now = new Date()) {
   const statuses = legs.map((l) => flightStatus(l, now));
   if (statuses.includes("airborne")) return "airborne";
   for (let i = 0; i < legs.length - 1; i++) {
-    if (now >= legs[i].arrive && now < legs[i + 1].depart) return "layover";
+    if (now >= flightRealArrive(legs[i]) && now < flightRealDepart(legs[i + 1])) return "layover";
   }
   const last = statuses[statuses.length - 1];
   if (last === "landed") return "landed";
@@ -443,7 +491,7 @@ function itemStatus(item, now = new Date()) {
 window.MGData = {
   NOW, FAMILY, AIRPORTS, AIRLINES, FLIGHTS, MODE_META,
   flightStatus, familyById, airline, airport, flightAwareUrl, modeOf, modeMeta, hasLoggedReturn, hasCoords,
-  viewerTime, VIEWER_TZ,
+  viewerTime, VIEWER_TZ, realInstant, flightRealDepart, flightRealArrive, flightProgress,
   isConnectionCandidate, findConnectionCandidate, buildJourneys, journeyStatus, itemStatus,
   CONNECTION_MIN_GAP, CONNECTION_MAX_GAP,
   minutes, hours, days,

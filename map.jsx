@@ -264,12 +264,15 @@ function MultiRouteRibbon({ legs, status, now, height, showLabels = false }) {
   const W = 280, H = height ?? 60;
   const pad = 28;
   const first = legs[0], last = legs[legs.length - 1];
-  const totalStart = first.depart.getTime(), totalEnd = last.arrive.getTime();
+  // Real UTC instants, not the naive stored digits — otherwise the dot
+  // position and elapsed-progress fraction drift by whatever UTC offset the
+  // two ends' airports have (see flightRealDepart/flightRealArrive, data.js).
+  const totalStart = window.MGData.flightRealDepart(first).getTime(), totalEnd = window.MGData.flightRealArrive(last).getTime();
   const totalSpan = Math.max(1, totalEnd - totalStart);
 
   const points = [{ code: first.from, t: 0 }];
   for (let i = 0; i < legs.length - 1; i++) {
-    const mid = (legs[i].arrive.getTime() + legs[i + 1].depart.getTime()) / 2;
+    const mid = (window.MGData.flightRealArrive(legs[i]).getTime() + window.MGData.flightRealDepart(legs[i + 1]).getTime()) / 2;
     points.push({ code: legs[i].to, t: Math.max(0, Math.min(1, (mid - totalStart) / totalSpan)), waypoint: true });
   }
   points.push({ code: last.to, t: 1 });
@@ -303,4 +306,69 @@ function MultiRouteRibbon({ legs, status, now, height, showLabels = false }) {
   );
 }
 
-Object.assign(window, { RouteMap, RouteRibbon, MultiRouteRibbon });
+// ── ActiveJourneysMap ───────────────────────────────────────────────────────
+// One shared world map for every currently-airborne flight, instead of a big
+// map inside each individual hero card — everyone in the air right now shows
+// up as their own dashed arc + moving plane on the same canvas. Centers on
+// the average longitude across all of them so the single whole-world frame
+// (same convention as RouteMap) favors wherever the family's actually flying.
+function ActiveJourneysMap({ items, height = 260 }) {
+  const W = 840, H = height;
+  const valid = items.filter((it) => hasCoords(it.from, it.to));
+  if (valid.length === 0) return null;
+
+  const midLon = valid.reduce((sum, it) => sum + (it.from.lon + it.to.lon) / 2, 0) / valid.length;
+  const project = projectFactory({ width: W, height: H, centerLon: midLon, lonSpan: 360, latSpan: 180, midLat: 0 });
+
+  const graticule = [];
+  for (let lat = -60; lat <= 60; lat += 15) {
+    const [, y1] = project(lat, midLon - 180);
+    graticule.push(<line key={`la${lat}`} x1="0" y1={y1} x2={W} y2={y1} stroke="var(--paper-line)" strokeWidth="0.5" />);
+  }
+  for (let lon = -180; lon <= 180; lon += 30) {
+    const [x1] = project(0, midLon + lon);
+    graticule.push(<line key={`lo${lon}`} x1={x1} y1="0" x2={x1} y2={H} stroke="var(--paper-line)" strokeWidth="0.5" />);
+  }
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="route-map active-map" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <pattern id="ajmGrain" width="3" height="3" patternUnits="userSpaceOnUse">
+          <circle cx="1.5" cy="1.5" r="0.4" fill="var(--ink)" opacity="0.06" />
+        </pattern>
+      </defs>
+      <rect width={W} height={H} fill="var(--paper-soft)" />
+      <rect width={W} height={H} fill="url(#ajmGrain)" />
+      <g opacity="0.85">{graticule}</g>
+      <g className="route-map__continents">
+        {CONTINENTS.map((d, i) => <path key={i} d={d} fill="var(--ink)" opacity="0.07" />)}
+      </g>
+      {valid.map((it) => {
+        const arc = arcPath(it.from, it.to, project, 80);
+        const [fx, fy] = project(it.from.lat, it.from.lon);
+        const [tx, ty] = project(it.to.lat, it.to.lon);
+        const plane = pointAt(it.from, it.to, project, Math.max(0, Math.min(1, it.progress)));
+        return (
+          <g key={it.key}>
+            <path d={arc} fill="none" stroke="var(--ink)" strokeOpacity="0.15" strokeWidth="2" strokeLinecap="round" />
+            <path d={arc} fill="none" stroke="var(--accent)" strokeWidth="1.6" strokeLinecap="round" strokeDasharray="4 5" />
+            <g transform={`translate(${fx},${fy})`}>
+              <circle r="6" fill="var(--paper)" stroke="var(--ink)" strokeWidth="1.2" />
+              <circle r="2.5" fill="var(--ink)" />
+            </g>
+            <g transform={`translate(${tx},${ty})`}>
+              <circle r="6" fill="var(--paper)" stroke="var(--ink)" strokeWidth="1.2" />
+              <circle r="2.5" fill="var(--accent)" />
+            </g>
+            <g transform={`translate(${plane.x},${plane.y}) rotate(${plane.heading})`} className="route-map__plane">
+              <circle r="10" fill="var(--sky)" opacity="0.25" />
+              <path d="M -8 -2.5 L 8 0 L -8 2.5 L -5 0 Z" fill="var(--ink)" />
+            </g>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+Object.assign(window, { RouteMap, RouteRibbon, MultiRouteRibbon, ActiveJourneysMap });

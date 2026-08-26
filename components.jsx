@@ -160,8 +160,11 @@ function CDSep() {
 
 // ── Progress bar (in-flight) ────────────────────────────────────────────────
 function FlightProgress({ flight, now }) {
-  const dep = flight.depart.getTime();
-  const arr = flight.arrive.getTime();
+  // Real UTC instants for the progress math (see flightRealDepart in
+  // data.js) — the displayed labels below still read flight.depart/arrive
+  // directly, which is deliberately the airport-local wall clock.
+  const dep = flightRealDepart(flight).getTime();
+  const arr = flightRealArrive(flight).getTime();
   const total = arr - dep;
   const elapsed = now.getTime() - dep;
   const t = Math.max(0, Math.min(1, elapsed / total));
@@ -172,11 +175,11 @@ function FlightProgress({ flight, now }) {
         <span className="fprog__plane" style={{ left: `${t * 100}%` }}>✈</span>
       </div>
       <div className="fprog__times">
-        <span>{flight.from} · {fmtTime(flight.depart)}</span>
+        <span>{airport(flight.from).city} · {fmtTime(flight.depart)}</span>
         <span className="fprog__remain">
           {fmtDuration(arr - now.getTime())} to landing
         </span>
-        <span>{fmtTime(flight.arrive)} · {flight.to}</span>
+        <span>{fmtTime(flight.arrive)} · {airport(flight.to).city}</span>
       </div>
     </div>
   );
@@ -190,11 +193,16 @@ function BoardingPassStrip({ flight, dense = false }) {
   const al = airline(flight.airline);
   const from = airport(flight.from);
   const to   = airport(flight.to);
-  const dur  = fmtDuration(flight.arrive - flight.depart);
+  // Real instants, not the naive stored digits — a route that crosses
+  // timezones (almost all of them) would otherwise show a duration that's
+  // off by the difference between the two airports' UTC offsets.
+  const dur  = fmtDuration(flightRealArrive(flight) - flightRealDepart(flight));
   // Viewer's own local time, shown as a small second line under each — the
   // airport's own time stays primary since that's what's on the ticket.
   // Only appears when we actually know both zones and they're different
   // (see viewerTime in data.js) — silently absent otherwise, never a guess.
+  // Kept short ("10:14 AM EST", not "...your time") specifically so it fits
+  // in the compact card grid without truncating.
   const vDepart = window.MGData.viewerTime(flight.depart, from);
   const vArrive = window.MGData.viewerTime(flight.arrive, to);
   return (
@@ -210,12 +218,12 @@ function BoardingPassStrip({ flight, dense = false }) {
       <div className="bp-strip__col">
         <div className="bp-strip__lbl">Depart {from.tz}</div>
         <div className="bp-strip__val">{fmtTime(flight.depart)}</div>
-        {vDepart && <div className="bp-strip__sub">{vDepart.time} your time{vDepart.dayShift !== 0 && <span className="bp-strip__dayshift">{vDepart.dayShift > 0 ? " +1d" : " −1d"}</span>}</div>}
+        {vDepart && <div className="bp-strip__sub">{vDepart.time} {vDepart.tzAbbrev}{vDepart.dayShift !== 0 && <span className="bp-strip__dayshift">{vDepart.dayShift > 0 ? " +1d" : " −1d"}</span>}</div>}
       </div>
       <div className="bp-strip__col">
         <div className="bp-strip__lbl">Arrive {to.tz}</div>
         <div className="bp-strip__val">{fmtTime(flight.arrive)}</div>
-        {vArrive && <div className="bp-strip__sub">{vArrive.time} your time{vArrive.dayShift !== 0 && <span className="bp-strip__dayshift">{vArrive.dayShift > 0 ? " +1d" : " −1d"}</span>}</div>}
+        {vArrive && <div className="bp-strip__sub">{vArrive.time} {vArrive.tzAbbrev}{vArrive.dayShift !== 0 && <span className="bp-strip__dayshift">{vArrive.dayShift > 0 ? " +1d" : " −1d"}</span>}</div>}
       </div>
       <div className="bp-strip__col">
         <div className="bp-strip__lbl">Duration</div>
@@ -232,13 +240,19 @@ function BoardingPassStrip({ flight, dense = false }) {
 // and that shouldn't change just because there's a stop in the middle.
 // "layover" has no nonstop equivalent (it only ever applies to a journey
 // mid-connection) but follows the same name+verb+detail phrasing as the rest.
-function cardLead({ status, isFlight, name, now, depart, arrive, layoverCity }) {
+// `depart`/`arrive` are the naive, airport-local values (only used for the
+// scheduled-date display, which is deliberately local-calendar); any math
+// against `now` uses `departReal`/`arriveReal` (see flightRealDepart in
+// data.js) so it reflects the actual elapsed/remaining time, not a value
+// skewed by the airport's UTC offset.
+function cardLead({ status, isFlight, name, now, depart, arrive, departReal, arriveReal, layoverCity }) {
+  const dep = departReal ?? depart, arr = arriveReal ?? arrive;
   if (status === "boarding") {
     return (
       <>
         <span className="card__lead-name">{name}</span>
         <span className="card__lead-verb"> takes off in </span>
-        <span className="card__lead-time">{fmtDuration(depart - now)}</span>
+        <span className="card__lead-time">{fmtDuration(dep - now)}</span>
       </>
     );
   }
@@ -264,7 +278,7 @@ function cardLead({ status, isFlight, name, now, depart, arrive, layoverCity }) 
       <>
         <span className="card__lead-name">{name}</span>
         <span className="card__lead-verb">{isFlight ? " landed " : " arrived "}</span>
-        <span className="card__lead-time">{fmtDuration(now - arrive)} ago</span>
+        <span className="card__lead-time">{fmtDuration(now - arr)} ago</span>
       </>
     );
   }
@@ -283,6 +297,7 @@ function cardLead({ status, isFlight, name, now, depart, arrive, layoverCity }) 
 // A close departure is worth calling out in the status pill up top ("3 days
 // to go") instead of the generic "Upcoming" — anything a week or further out
 // just isn't as time-sensitive. Shared so a journey's pill reads the same way.
+// `depart` should be the real instant (see cardLead above).
 function scheduledPillLabel(status, depart, now) {
   if (status !== "scheduled") return undefined;
   const days = Math.floor((depart - now) / 86400000);
@@ -309,7 +324,12 @@ function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn, onLi
     ? window.MGData.findConnectionCandidate(flight, allFlights) : null;
   const connectionIsOnward = connection && window.MGData.isConnectionCandidate(flight, connection);
 
-  const pillLabel = scheduledPillLabel(status, flight.depart, now);
+  const pillLabel = scheduledPillLabel(status, flightRealDepart(flight), now);
+  // Airborne is the one status where FlightProgress already shows the route,
+  // both cities, and both times in one bar — the ordinary cities-row ribbon
+  // + boarding-pass strip right under it would just repeat all of that.
+  const showProgress = status === "airborne" && isFlight;
+  const arriveViewerTime = showProgress ? window.MGData.viewerTime(flight.arrive, to) : null;
 
   return (
     <article className={`card card--${status}`} onClick={() => onOpen(flight)} data-comment-anchor={`card-${flight.id}`}>
@@ -318,28 +338,41 @@ function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn, onLi
         <StatusPill status={status} mode={mode} label={pillLabel} />
       </div>
       <div className="card__lead">
-        {cardLead({ status, isFlight, name: travelers[0]?.first, now, depart: flight.depart, arrive: flight.arrive })}
+        {cardLead({
+          status, isFlight, name: travelers[0]?.first, now,
+          depart: flight.depart, arrive: flight.arrive,
+          departReal: flightRealDepart(flight), arriveReal: flightRealArrive(flight),
+        })}
       </div>
-      <div className="card__cities">
-        <span className="card__city">
-          <span className="card__city-code">{isFlight ? flight.from : ""}</span>
-          <span className="card__city-name">{from.city}</span>
-        </span>
-        {isFlight ? (
-          <RouteRibbon
-            from={from} to={to}
-            progress={flight.progress ?? 0}
-            status={status}
-          />
-        ) : (
-          <span className="mode-connector" aria-hidden="true">{modeMeta(flight).icon}</span>
-        )}
-        <span className="card__city">
-          <span className="card__city-code">{isFlight ? flight.to : ""}</span>
-          <span className="card__city-name">{to.city}</span>
-        </span>
-      </div>
-      <BoardingPassStrip flight={flight} dense />
+      {showProgress ? (
+        <>
+          <FlightProgress flight={flight} now={now} />
+          {arriveViewerTime && <div className="fprog__viewer">({arriveViewerTime.time} {arriveViewerTime.tzAbbrev})</div>}
+        </>
+      ) : (
+        <>
+          <div className="card__cities">
+            <span className="card__city">
+              <span className="card__city-code">{isFlight ? flight.from : ""}</span>
+              <span className="card__city-name">{from.city}</span>
+            </span>
+            {isFlight ? (
+              <RouteRibbon
+                from={from} to={to}
+                progress={flightProgress(flight, now)}
+                status={status}
+              />
+            ) : (
+              <span className="mode-connector" aria-hidden="true">{modeMeta(flight).icon}</span>
+            )}
+            <span className="card__city">
+              <span className="card__city-code">{isFlight ? flight.to : ""}</span>
+              <span className="card__city-name">{to.city}</span>
+            </span>
+          </div>
+          <BoardingPassStrip flight={flight} dense />
+        </>
+      )}
       {flight.note && travelers.length === 1 && (
         <div className="card__note">"{flight.note.length > 80 ? flight.note.slice(0, 80) + "…" : flight.note}"</div>
       )}
@@ -387,14 +420,20 @@ function JourneyCard({ item, onOpen, now }) {
   const to   = { ...airport(last.to),   code: last.to };
   const travelers = first.travelers.map(familyById).filter(Boolean);
 
-  const layoverIdx = legs.findIndex((l, i) => i < legs.length - 1 && now >= l.arrive && now < legs[i + 1].depart);
+  const layoverIdx = legs.findIndex((l, i) => i < legs.length - 1 && now >= flightRealArrive(l) && now < flightRealDepart(legs[i + 1]));
   const layoverCity = layoverIdx >= 0 ? airport(legs[layoverIdx].to).city : null;
   const airborneLeg = legs.find((l) => flightStatus(l, now) === "airborne");
   const faLeg = airborneLeg || first;
 
-  const pillLabel = scheduledPillLabel(status, first.depart, now);
+  const pillLabel = scheduledPillLabel(status, flightRealDepart(first), now);
   const journeyFlight = { ...item.summary, id: item.id, legs, journeyId: item.id };
   const stripFlight = { mode, airline: item.summary.airline, number: item.summary.number, from: first.from, to: last.to, depart: first.depart, arrive: last.arrive };
+  // Same reasoning as FlightCard — FlightProgress already shows the current
+  // leg's route, cities, and times in one bar, so skip the otherwise-
+  // duplicate ribbon + boarding-pass strip while a leg is actually airborne.
+  const showProgress = status === "airborne" && isFlight && airborneLeg;
+  const airborneLegTo = showProgress ? airport(airborneLeg.to) : null;
+  const arriveViewerTime = showProgress ? window.MGData.viewerTime(airborneLeg.arrive, airborneLegTo) : null;
 
   return (
     <article className={`card card--${status === "layover" ? "boarding" : status}`} onClick={() => onOpen(journeyFlight)}>
@@ -403,25 +442,39 @@ function JourneyCard({ item, onOpen, now }) {
         <StatusPill status={status} mode={mode} label={pillLabel} />
       </div>
       <div className="card__lead">
-        {cardLead({ status, isFlight, name: travelers[0]?.first, now, depart: first.depart, arrive: last.arrive, layoverCity })}
+        {cardLead({
+          status, isFlight, name: travelers[0]?.first, now,
+          depart: first.depart, arrive: last.arrive,
+          departReal: flightRealDepart(first), arriveReal: flightRealArrive(last),
+          layoverCity,
+        })}
       </div>
-      <div className="card__cities">
-        <span className="card__city">
-          <span className="card__city-code">{isFlight ? first.from : ""}</span>
-          <span className="card__city-name">{from.city}</span>
-        </span>
-        {isFlight ? (
-          <MultiRouteRibbon legs={legs} status={status} now={now} />
-        ) : (
-          <span className="mode-connector" aria-hidden="true">{modeMeta(first).icon}</span>
-        )}
-        <span className="card__city">
-          <span className="card__city-code">{isFlight ? last.to : ""}</span>
-          <span className="card__city-name">{to.city}</span>
-        </span>
-      </div>
-      <div className="card__via">Stopover in {legs.slice(0, -1).map((l) => airport(l.to).city).join(", ")}</div>
-      <BoardingPassStrip flight={stripFlight} dense />
+      {showProgress ? (
+        <>
+          <FlightProgress flight={airborneLeg} now={now} />
+          {arriveViewerTime && <div className="fprog__viewer">({arriveViewerTime.time} {arriveViewerTime.tzAbbrev})</div>}
+        </>
+      ) : (
+        <>
+          <div className="card__cities">
+            <span className="card__city">
+              <span className="card__city-code">{isFlight ? first.from : ""}</span>
+              <span className="card__city-name">{from.city}</span>
+            </span>
+            {isFlight ? (
+              <MultiRouteRibbon legs={legs} status={status} now={now} />
+            ) : (
+              <span className="mode-connector" aria-hidden="true">{modeMeta(first).icon}</span>
+            )}
+            <span className="card__city">
+              <span className="card__city-code">{isFlight ? last.to : ""}</span>
+              <span className="card__city-name">{to.city}</span>
+            </span>
+          </div>
+          <div className="card__via">Stopover in {legs.slice(0, -1).map((l) => airport(l.to).city).join(", ")}</div>
+          <BoardingPassStrip flight={stripFlight} dense />
+        </>
+      )}
       {item.summary.note && travelers.length === 1 && (
         <div className="card__note">"{item.summary.note.length > 80 ? item.summary.note.slice(0, 80) + "…" : item.summary.note}"</div>
       )}

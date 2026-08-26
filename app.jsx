@@ -324,19 +324,25 @@ function PeopleFilter({ ids, onChange }) {
 function Board({ buckets, journeyBuckets, now, heroOn, onOpen, onAdd, allFlights, onAddReturn, onLinkConnection }) {
   const jb = journeyBuckets || { airborne: [], boarding: [], scheduled: [], landed: [] };
   const airborne = buckets.airborne;
-  const showAirborneHero = heroOn && airborne.length > 0;
-  const showBoardingHero = heroOn && airborne.length === 0 && buckets.boarding.length > 0;
+  const anyAirborne = airborne.length > 0 || jb.airborne.length > 0;
+  const showBoardingHero = heroOn && !anyAirborne && buckets.boarding.length > 0;
   const boardingHeroFlight = showBoardingHero ? buckets.boarding[0] : null;
   // Boarding flights NOT already used in the hero — feed the "Taking off soon" rail.
   const remainingBoarding = buckets.boarding.filter((f) => f !== boardingHeroFlight);
-  // Airborne flights NOT already used in the hero — only happens if heroOn is off.
-  const remainingAirborne = airborne.filter(() => !showAirborneHero);
+
+  // One shared world map for everyone currently airborne, instead of a big
+  // tile per flight — a journey contributes whichever leg is actually in the
+  // air right now. Cards for all of them still follow right below.
+  const mapItems = [
+    ...airborne.map((f) => ({ key: f.id, from: airport(f.from), to: airport(f.to), progress: flightProgress(f, now) })),
+    ...jb.airborne.map((item) => {
+      const leg = item.legs.find((l) => flightStatus(l, now) === "airborne");
+      return leg ? { key: item.id, from: airport(leg.from), to: airport(leg.to), progress: flightProgress(leg, now) } : null;
+    }).filter(Boolean),
+  ];
 
   return (
     <div className="board" data-screen-label="01 Board">
-      {showAirborneHero && (
-        <HeroDeck flights={airborne} now={now} onOpen={onOpen} />
-      )}
       {showBoardingHero && (
         <HeroBoarding flight={boardingHeroFlight} now={now} onOpen={onOpen} />
       )}
@@ -358,12 +364,17 @@ function Board({ buckets, journeyBuckets, now, heroOn, onOpen, onAdd, allFlights
         </section>
       )}
 
-      {/* Airborne fallback row (only shown when the hero is toggled off) */}
-      {(remainingAirborne.length > 0 || jb.airborne.length > 0) && (
+      {/* In the air — one shared map above the cards, no per-flight hero */}
+      {anyAirborne && (
         <section className="rail">
-          <SectionHead kicker="Right now" title="In the air" count={remainingAirborne.length + jb.airborne.length} />
+          <SectionHead kicker="Right now" title="In the air" count={airborne.length + jb.airborne.length} />
+          {heroOn && mapItems.length > 0 && (
+            <div className="active-map-wrap">
+              <ActiveJourneysMap items={mapItems} height={260} />
+            </div>
+          )}
           <div className="rail__grid">
-            {remainingAirborne.map((f) => <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} />)}
+            {airborne.map((f) => <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} />)}
             {jb.airborne.map((item) => <JourneyCard key={item.id} item={item} onOpen={onOpen} now={now} />)}
           </div>
         </section>
@@ -408,151 +419,6 @@ function Board({ buckets, journeyBuckets, now, heroOn, onOpen, onAdd, allFlights
   );
 }
 
-// ── HeroDeck — single flight = the big editorial hero, 2+ = split tiles ────
-// When more than one family member is in the air at once, we show every
-// concurrent flight side-by-side in the same hero band so Dadaji never has to
-// scroll to discover the second one. Same-flight travelers are already grouped
-// inside a single tile via the AvatarStack.
-function HeroDeck({ flights, now, onOpen }) {
-  if (flights.length === 1) {
-    return <HeroAirborne flight={flights[0]} now={now} onOpen={onOpen} />;
-  }
-  return (
-    <section className="hero-deck" data-screen-label="01 Hero Deck">
-      <div className="hero-deck__head">
-        <div className="hero__kicker">
-          <span className="hero__live-dot" />
-          Right now · {flights.length} family members in the air
-        </div>
-        <span className="hero__chip">{flights.length} live flights</span>
-      </div>
-      <div className={`hero-deck__grid hero-deck__grid--${Math.min(flights.length, 3)}`}>
-        {flights.map((f) => (
-          <HeroAirborneTile key={f.id} flight={f} now={now} onOpen={onOpen} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-// Compact version of the airborne hero used inside HeroDeck. Same content as
-// HeroAirborne but smaller — map shrinks, the lines row drops to two stats,
-// and the note moves inside the tile instead of below.
-function HeroAirborneTile({ flight, now, onOpen }) {
-  const isFlight = modeOf(flight) === "flight";
-  const from = { ...airport(flight.from), code: flight.from };
-  const to   = { ...airport(flight.to),   code: flight.to };
-  const travelers = flight.travelers.map(familyById).filter(Boolean);
-  const remaining = flight.arrive - now;
-  const lead = travelers.length === 1
-    ? travelers[0].first
-    : travelers.map((p) => p.first).join(" & ");
-  return (
-    <article className="htile" onClick={() => onOpen(flight)}>
-      <div className="htile__map">
-        {isFlight && hasCoords(from, to)
-          ? <RouteMap from={from} to={to} progress={flight.progress ?? 0} status="airborne" height={200} />
-          : <div className="tcard__mode-block" style={{ height: 200 }}>{modeMeta(flight).icon}</div>}
-        <span className="htile__chip">{isFlight ? "In the air" : "Traveling"}</span>
-      </div>
-      <div className="htile__body">
-        <div className="htile__top">
-          <AvatarStack ids={flight.travelers} size={36} />
-          <span className="htile__id">{isFlight ? <>{flight.airline}{flight.number}</> : modeMeta(flight).icon}</span>
-        </div>
-        <h2 className="htile__headline">
-          <span className="htile__name">{lead}</span>
-          <span className="htile__verb">{isFlight ? " is in the sky." : " is on the way."}</span>
-        </h2>
-        <div className="htile__route">
-          {from.city} <span className="htile__arrow">→</span> {to.city}
-        </div>
-        <FlightProgress flight={flight} now={now} />
-        <div className="htile__lines">
-          <div>
-            <div className="hero__line-lbl">Lands in</div>
-            <div className="hero__line-val">{fmtDuration(remaining)}</div>
-          </div>
-          <div>
-            <div className="hero__line-lbl">Arriving</div>
-            <div className="hero__line-val">{fmtTime(flight.arrive)} {to.tz}</div>
-          </div>
-        </div>
-        <button className="hero__more" onClick={(e) => { e.stopPropagation(); onOpen(flight); }}>
-          Open flight details →
-        </button>
-      </div>
-    </article>
-  );
-}
-
-// ── HeroAirborne ────────────────────────────────────────────────────────────
-// The big "someone's in the sky right now" panel that sits at the top of the
-// board whenever any flight is airborne. This is the single most important
-// moment in the UI for Grandpa.
-function HeroAirborne({ flight, now, onOpen }) {
-  const isFlight = modeOf(flight) === "flight";
-  const from = { ...airport(flight.from), code: flight.from };
-  const to   = { ...airport(flight.to),   code: flight.to };
-  const travelers = flight.travelers.map(familyById).filter(Boolean);
-  const remaining = flight.arrive - now;
-  const lead = travelers.length === 1
-    ? travelers[0].first
-    : travelers.map((p) => p.first).join(" & ");
-
-  return (
-    <section className="hero hero--air" data-screen-label="01 Hero Airborne">
-      <div className="hero__pulse" aria-hidden="true" />
-      <div className="hero__top">
-        <div className="hero__kicker">
-          <span className="hero__live-dot" />
-          Right now · {fmtTime(now)} UTC
-        </div>
-        <span className="hero__chip">{isFlight ? "In the air" : "Traveling"}</span>
-      </div>
-      <div className="hero__layout">
-        <div className="hero__left">
-          <AvatarStack ids={flight.travelers} size={56} />
-          <h1 className="hero__headline">
-            <span className="hero__name">{lead}</span>
-            <span className="hero__verb">{isFlight ? " is in the sky." : " is on the way."}</span>
-          </h1>
-          <p className="hero__sub">
-            {isFlight
-              ? <>{flight.airline}{flight.number} · {from.city} → {to.city}</>
-              : <>{modeMeta(flight).icon} {modeMeta(flight).label} · {from.city} → {to.city}</>}
-          </p>
-          <FlightProgress flight={flight} now={now} />
-          <div className="hero__lines">
-            <div>
-              <div className="hero__line-lbl">Lands in</div>
-              <div className="hero__line-val">{fmtDuration(remaining)}</div>
-            </div>
-            <div>
-              <div className="hero__line-lbl">Arriving</div>
-              <div className="hero__line-val">{fmtTime(flight.arrive)} {to.tz}</div>
-            </div>
-          </div>
-          <button className="hero__more" onClick={() => onOpen(flight)}>
-            Open flight details →
-          </button>
-        </div>
-        <div className="hero__right">
-          {isFlight && hasCoords(from, to)
-            ? <RouteMap from={from} to={to} progress={flight.progress ?? 0} status="airborne" height={360} />
-            : <div className="tcard__mode-block" style={{ height: 360 }}>{modeMeta(flight).icon}</div>}
-        </div>
-      </div>
-      {flight.note && (
-        <div className="hero__note">
-          <span className="hero__note-kicker">{travelers[0]?.first} wrote</span>
-          <span>"{flight.note}"</span>
-        </div>
-      )}
-    </section>
-  );
-}
-
 // ── HeroBoarding (shown when nobody's airborne, but someone's leaving soon) ──
 function HeroBoarding({ flight, now, onOpen }) {
   const isFlight = modeOf(flight) === "flight";
@@ -576,7 +442,7 @@ function HeroBoarding({ flight, now, onOpen }) {
             <span className="hero__name">{lead}</span>
             <span className="hero__verb"> takes off in…</span>
           </h1>
-          <Countdown target={flight.depart} dramatic now={now} />
+          <Countdown target={flightRealDepart(flight)} dramatic now={now} />
           <p className="hero__sub">
             {isFlight ? <>{flight.airline}{flight.number} · </> : <>{modeMeta(flight).icon} {modeMeta(flight).label} · </>}
             {from.city} ({flight.from}) → {to.city} ({flight.to}) · {fmtTime(flight.depart)} {from.tz}

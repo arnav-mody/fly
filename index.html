@@ -221,6 +221,11 @@
       gap: var(--gap-card);
     }
     .rail--landed .rail__grid { opacity: 0.9; }
+    .active-map-wrap {
+      border-radius: 20px; overflow: hidden; background: var(--paper);
+      border: 0.5px solid var(--paper-line); box-shadow: var(--shadow-1);
+    }
+    .active-map-wrap .active-map { width: 100%; display: block; }
 
     /* ── Section header ─────────────────────────────────────────────────── */
     .sect-head { display: flex; flex-direction: column; gap: 4px; }
@@ -250,24 +255,6 @@
       padding: 32px 36px 28px;
       overflow: hidden;
       box-shadow: var(--shadow-2);
-    }
-    .hero--air::before {
-      content: ""; position: absolute; inset: 0;
-      background:
-        radial-gradient(ellipse 60% 80% at 100% 0%, color-mix(in oklab, var(--sky) 18%, transparent), transparent 60%),
-        radial-gradient(ellipse 50% 60% at 0% 100%, color-mix(in oklab, var(--accent) 12%, transparent), transparent 60%);
-      pointer-events: none;
-    }
-    .hero__pulse {
-      position: absolute; top: -100px; right: -100px;
-      width: 320px; height: 320px; border-radius: 50%;
-      background: radial-gradient(circle, color-mix(in oklab, var(--sky) 28%, transparent), transparent 60%);
-      animation: heroPulse 4s ease-in-out infinite;
-      pointer-events: none;
-    }
-    @keyframes heroPulse {
-      0%, 100% { transform: scale(1); opacity: 0.7; }
-      50%      { transform: scale(1.1); opacity: 1; }
     }
     .hero__top {
       position: relative; display: flex; justify-content: space-between; align-items: center;
@@ -310,18 +297,6 @@
       font-family: var(--font-mono); font-size: 0.78rem; color: var(--ink-soft);
       margin: 0; letter-spacing: 0.02em;
     }
-    .hero__lines {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
-      padding-top: 16px; border-top: 0.5px solid var(--paper-line);
-    }
-    .hero__line-lbl {
-      font-family: var(--font-mono); font-size: 0.65rem; letter-spacing: 0.1em;
-      text-transform: uppercase; color: var(--ink-faint);
-    }
-    .hero__line-val {
-      font-family: var(--font-serif); font-size: 1.55rem; letter-spacing: -0.01em;
-      margin-top: 2px;
-    }
     .hero__more {
       align-self: flex-start; margin-top: 8px;
       appearance: none; border: 0; background: transparent;
@@ -335,20 +310,6 @@
       border-radius: 18px; overflow: hidden;
       background: var(--paper); border: 0.5px solid var(--paper-line);
     }
-    .hero__note {
-      position: relative; margin-top: 24px; padding: 18px 22px;
-      border-left: 3px solid var(--accent);
-      background: color-mix(in oklab, var(--paper) 70%, transparent);
-      border-radius: 0 12px 12px 0;
-      font-family: var(--font-serif); font-style: italic; font-size: 1.2rem;
-      color: var(--ink-soft);
-      display: flex; flex-direction: column; gap: 6px;
-    }
-    .hero__note-kicker {
-      font-family: var(--font-mono); font-style: normal; font-size: 0.65rem;
-      letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent);
-    }
-
     /* ── Route map shared bits ──────────────────────────────────────────── */
     .route-map { display: block; }
     .route-map__code {
@@ -535,6 +496,10 @@
       color: var(--ink-soft);
     }
     .fprog__remain { color: var(--accent); font-weight: 500; }
+    .fprog__viewer {
+      font-family: var(--font-mono); font-size: 0.72rem; color: var(--ink-faint);
+      text-align: center; margin-top: -2px;
+    }
 
     /* ── Boarding-pass strip ────────────────────────────────────────────── */
     .bp-strip {
@@ -559,8 +524,8 @@
     }
     .bp-strip__sub {
       font-family: var(--font-mono); font-size: 0.68rem; color: var(--ink-faint);
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
+    .bp-strip--dense .bp-strip__sub { font-size: 0.62rem; }
     .bp-strip__dayshift { color: var(--accent); font-weight: 600; }
 
     /* ── Empty row ──────────────────────────────────────────────────────── */
@@ -672,7 +637,7 @@
     }
     .fd__arrow { color: var(--accent); }
     .fd__map { margin-top: 20px; border-radius: 16px; overflow: hidden; background: var(--paper); }
-    .fd__map .route-map { width: 100%; aspect-ratio: 7/2.4; }
+    .fd__map .route-ribbon { width: 100%; height: 90px; }
 
     .fd__statusdetail { padding: 28px 36px; border-bottom: 0.5px solid var(--paper-line); }
     .fd__landed { display: flex; align-items: center; gap: 16px; }
@@ -704,23 +669,13 @@
       letter-spacing: -0.01em; margin-bottom: 14px;
     }
 
-    .fd__travelers { display: flex; flex-wrap: wrap; gap: 18px; }
-    .fd__traveler { display: flex; align-items: center; gap: 12px; }
-    .fd__traveler-name { font-family: var(--font-serif); font-size: 1.2rem; }
-    .fd__traveler-role { font-size: 0.78rem; color: var(--ink-faint); }
-
-    .fd__details--reactions { background: var(--paper-soft); }
-    .fd__reactions { display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; }
-    .fd__reactions-empty { color: var(--ink-faint); font-family: var(--font-serif); font-style: italic; font-size: 0.95rem; }
-    .fd__react-input { display: flex; gap: 8px; }
-    .fd__react-input input {
-      flex: 1; padding: 12px 16px; border-radius: 999px; border: 0.5px solid var(--paper-line);
-      background: var(--paper); font: inherit; color: inherit;
+    .fd__travelers { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px 18px; }
+    .fd__traveler { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .fd__traveler-name {
+      font-family: var(--font-serif); font-size: 0.95rem;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .fd__react-input button {
-      appearance: none; border: 0; padding: 12px 20px; border-radius: 999px;
-      background: var(--ink); color: var(--paper); font-weight: 600;
-    }
+    .fd__traveler-role { font-size: 0.72rem; color: var(--ink-faint); }
 
     .fd__manage {
       padding: 18px 36px; border-radius: 0 0 24px 24px;
@@ -987,63 +942,6 @@
     .footer__sub { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.08em; opacity: 0.6; }
 
     /* ── HeroDeck (multi-flight) ──────────────────────────────────────── */
-    .hero-deck {
-      background: var(--paper-soft);
-      border: 0.5px solid var(--paper-line);
-      border-radius: 24px;
-      padding: 28px 32px;
-      box-shadow: var(--shadow-2);
-    }
-    .hero-deck__head {
-      display: flex; justify-content: space-between; align-items: center;
-      gap: 16px; flex-wrap: wrap; margin-bottom: 20px;
-    }
-    .hero-deck__grid {
-      display: grid; gap: 20px;
-    }
-    .hero-deck__grid--2 { grid-template-columns: 1fr 1fr; }
-    .hero-deck__grid--3 { grid-template-columns: repeat(3, 1fr); }
-    @media (max-width: 1100px) {
-      .hero-deck__grid--2, .hero-deck__grid--3 { grid-template-columns: 1fr; }
-    }
-    .htile {
-      cursor: pointer; appearance: none; text-align: left; font: inherit; color: inherit;
-      background: var(--paper); border: 0.5px solid var(--paper-line);
-      border-radius: 18px; padding: 0; overflow: hidden;
-      display: flex; flex-direction: column;
-      box-shadow: var(--shadow-1);
-      transition: transform .15s, box-shadow .15s, border-color .15s;
-    }
-    .htile:hover {
-      transform: translateY(-2px); box-shadow: var(--shadow-2); border-color: var(--ink-faint);
-    }
-    .htile__map { position: relative; }
-    .htile__map .route-map { width: 100%; height: 180px; display: block; }
-    .htile__chip {
-      position: absolute; top: 12px; left: 12px;
-      font-family: var(--font-mono); font-size: 0.65rem; letter-spacing: 0.1em;
-      text-transform: uppercase; padding: 4px 10px; border-radius: 999px;
-      background: var(--sky); color: white;
-    }
-    .htile__body { padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 10px; }
-    .htile__top { display: flex; justify-content: space-between; align-items: center; }
-    .htile__id { font-family: var(--font-mono); font-size: 0.8rem; color: var(--ink-soft); font-weight: 600; }
-    .htile__headline {
-      font-family: var(--font-serif); font-weight: 400; font-size: clamp(1.6rem, 2.6vw, 2.4rem);
-      line-height: 1.05; letter-spacing: -0.015em; margin: 4px 0 0;
-    }
-    .htile__name { font-style: italic; color: var(--accent); }
-    .htile__route {
-      font-family: var(--font-mono); font-size: 0.78rem; color: var(--ink-soft);
-      letter-spacing: 0.02em;
-    }
-    .htile__arrow { color: var(--accent); margin: 0 4px; }
-    .htile__lines {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
-      padding-top: 12px; border-top: 0.5px solid var(--paper-line);
-    }
-    .htile__lines .hero__line-val { font-size: 1.3rem; }
-
     /* ── Calendar (agenda) ─────────────────────────────────────────────── */
     .cal { display: flex; flex-direction: column; gap: 28px; max-width: 880px; }
     .cal__head {
