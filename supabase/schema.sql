@@ -189,3 +189,12 @@ alter table flights drop column if exists gate;
 alter table flights drop column if exists terminal;
 alter table flights drop column if exists confirmation;
 alter table flights drop column if exists submitted_by;
+
+-- ── "Return not logged" dismissal ────────────────────────────────────────────
+-- The nudge is usually right, but not always (a family member landing
+-- somewhere with no return planned on purpose, or a home-city match the app
+-- doesn't know about yet) — this lets anyone dismiss it for a specific
+-- flight rather than just living with a wrong prompt forever. A real,
+-- shared decision recorded once, not an inferred guess or a per-device
+-- localStorage flag only one person would see.
+alter table flights add column if not exists return_dismissed boolean not null default false;

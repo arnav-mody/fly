@@ -62,6 +62,16 @@ Deno.serve(async (req) => {
       return json({ ok: true, journeyId });
     }
 
+    // Lightweight path: dismiss the "return not logged" nudge on one flight
+    // (see FlightCard/FlightDetailModal's Dismiss button) — just flips one
+    // flag, no other field touched or re-validated.
+    if (body.dismissReturn === true && typeof body.flightId === "string") {
+      const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
+      const { error: dismissErr } = await supabase.from("flights").update({ return_dismissed: true }).eq("id", body.flightId);
+      if (dismissErr) return json({ ok: false, error: dismissErr.message }, 500);
+      return json({ ok: true });
+    }
+
     const {
       flightId, mode: rawMode, airline_code, flight_number, from_airport, to_airport,
       depart_at, arrive_at, note, source, imagePath, travelerIds, journeyId,

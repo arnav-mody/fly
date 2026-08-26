@@ -316,7 +316,7 @@ function scheduledPillLabel(status, depart, now) {
 // ── FlightCard ──────────────────────────────────────────────────────────────
 // The everyday card — appears in "Taking off soon", "This week", "Just landed"
 // rails. Click → opens the flight detail modal.
-function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn, onLinkConnection }) {
+function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn, onLinkConnection, onDismissReturn }) {
   const status = flightStatus(flight, now);
   const mode = modeOf(flight);
   const isFlight = mode === "flight";
@@ -324,8 +324,9 @@ function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn, onLi
   const to   = { ...airport(flight.to),   code: flight.to };
   const travelers = flight.travelers.map(familyById).filter(Boolean);
   // Worth flagging at any stage of the trip, not just after landing — and
-  // never when everyone aboard is simply arriving home (see isHomeArrival).
-  const noReturn = allFlights && !hasLoggedReturn(flight, allFlights) && !window.MGData.isHomeArrival(flight);
+  // never when everyone aboard is simply arriving home (see isHomeArrival)
+  // or when someone's already said this one doesn't need a return logged.
+  const noReturn = allFlights && !flight.returnDismissed && !hasLoggedReturn(flight, allFlights) && !window.MGData.isHomeArrival(flight);
   // Two boarding passes logged separately that plausibly connect — offer to
   // link them into one journey card (the retroactive counterpart to ticking
   // "this is a connecting flight" during upload). Never offered once a
@@ -394,9 +395,14 @@ function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn, onLi
         <div className="card__note">"{flight.note.length > 80 ? flight.note.slice(0, 80) + "…" : flight.note}"</div>
       )}
       {noReturn && (
-        <button className="card__no-return" onClick={(e) => { e.stopPropagation(); onAddReturn(flight); }}>
-          Return not logged — click to add
-        </button>
+        <div className="card__no-return-row">
+          <button className="card__no-return" onClick={(e) => { e.stopPropagation(); onAddReturn(flight); }}>
+            Return not logged — click to add
+          </button>
+          <button className="card__dismiss" onClick={(e) => { e.stopPropagation(); onDismissReturn(flight); }} title="Not expecting a return leg for this trip">
+            Dismiss
+          </button>
+        </div>
       )}
       {connection && (
         <button className="card__no-return" onClick={(e) => { e.stopPropagation(); onLinkConnection(flight, connection); }}>

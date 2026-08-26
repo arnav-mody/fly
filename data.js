@@ -297,8 +297,15 @@ const hasLoggedReturn = (flight, allFlights) => allFlights.some((other) =>
 // doesn't need one). Only suppresses the "return not logged" nudge when
 // that's true for everyone aboard; a mixed group (some home, some not)
 // still gets the nudge, since it may still be missing for whoever isn't.
+// Compares by *city*, not exact airport code — someone whose home airport
+// is JFK is still home if they land at LGA or EWR instead; a metro area
+// commonly has more than one airport, and a family member landing at
+// whichever one had the better fare shouldn't read as "away from home".
 const isHomeArrival = (flight) => flight.travelers.length > 0 &&
-  flight.travelers.every((id) => familyById(id)?.homeAirport === flight.to);
+  flight.travelers.every((id) => {
+    const home = familyById(id)?.homeAirport;
+    return home && airport(home).city === airport(flight.to).city;
+  });
 
 // RouteMap needs real lat/lon to draw an arc — a free-typed airport code we
 // don't recognize (or train/car's plain city text) has none, and feeding it

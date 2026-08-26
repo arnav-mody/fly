@@ -155,6 +155,19 @@ function App() {
     });
   };
 
+  // "Return not logged" isn't always right — a home-city match the app
+  // doesn't know about yet, or a flight that genuinely has no return
+  // planned. Dismiss records that decision once, for everyone, rather than
+  // guessing harder or hiding it only on the device that clicked dismiss.
+  const handleDismissReturn = (flight) => {
+    window.supabaseClient.functions.invoke("save-flight", {
+      body: { dismissReturn: true, flightId: flight.id },
+    }).then(({ data, error }) => {
+      if (error || !data || !data.ok) { console.error("Couldn't dismiss:", error || data); return; }
+      refreshFlights();
+    });
+  };
+
   return (
     <div className="app">
       <TopBar
@@ -189,6 +202,7 @@ function App() {
             onAdd={() => setAddOpen(true)}
             onAddReturn={(flight) => setReturnPrefill({ from: flight.to, to: flight.from, travelers: flight.travelers, mode: flight.mode })}
             onLinkConnection={handleLinkConnection}
+            onDismissReturn={handleDismissReturn}
           />
         )}
         {view === "calendar" && (
@@ -214,6 +228,7 @@ function App() {
         onEdit={(f) => { setOpenFlight(null); setEditingFlight(f); }}
         onDeleted={refreshFlights}
         onAddReturn={(f) => { setOpenFlight(null); setReturnPrefill({ from: f.to, to: f.from, travelers: f.travelers, mode: f.mode }); }}
+        onDismissReturn={(f) => { handleDismissReturn(f); setOpenFlight(null); }}
       />
       <AddTripModal
         open={addOpen || !!editingFlight || !!returnPrefill}
@@ -343,7 +358,7 @@ function PeopleFilter({ ids, onChange }) {
 }
 
 // ── Board ───────────────────────────────────────────────────────────────────
-function Board({ buckets, journeyBuckets, now, heroOn, onOpen, onAdd, allFlights, onAddReturn, onLinkConnection }) {
+function Board({ buckets, journeyBuckets, now, heroOn, onOpen, onAdd, allFlights, onAddReturn, onLinkConnection, onDismissReturn }) {
   const jb = journeyBuckets || { airborne: [], boarding: [], scheduled: [], landed: [] };
   const airborne = buckets.airborne;
   const anyAirborne = airborne.length > 0 || jb.airborne.length > 0;
@@ -399,7 +414,7 @@ function Board({ buckets, journeyBuckets, now, heroOn, onOpen, onAdd, allFlights
         <section className="rail rail--landed">
           <SectionHead kicker="Last 8 hours" title="Just landed" count={buckets.landed.length + jb.landed.length} />
           <div className="rail__grid">
-            {buckets.landed.map((f) => <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} onLinkConnection={onLinkConnection} />)}
+            {buckets.landed.map((f) => <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} onLinkConnection={onLinkConnection} onDismissReturn={onDismissReturn} />)}
             {jb.landed.map((item) => <JourneyCard key={item.id} item={item} onOpen={onOpen} now={now} />)}
           </div>
         </section>
@@ -413,10 +428,10 @@ function Board({ buckets, journeyBuckets, now, heroOn, onOpen, onAdd, allFlights
           : (
             <div className="rail__grid">
               {remainingBoarding.map((f) => (
-                <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} onLinkConnection={onLinkConnection} />
+                <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} onLinkConnection={onLinkConnection} onDismissReturn={onDismissReturn} />
               ))}
               {jb.boarding.map((item) => <JourneyCard key={item.id} item={item} onOpen={onOpen} now={now} />)}
-              {buckets.scheduled.map((f) => <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} onLinkConnection={onLinkConnection} />)}
+              {buckets.scheduled.map((f) => <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} onLinkConnection={onLinkConnection} onDismissReturn={onDismissReturn} />)}
               {jb.scheduled.map((item) => <JourneyCard key={item.id} item={item} onOpen={onOpen} now={now} />)}
             </div>
           )
@@ -701,6 +716,7 @@ function mapDbFlight(row) {
     depart: new Date(row.depart_at),
     arrive: new Date(row.arrive_at),
     journeyId: row.journey_id || null,
+    returnDismissed: !!row.return_dismissed,
     travelers: (row.flight_travelers || []).map((t) => t.family_member_id),
     note: row.note || undefined,
   };

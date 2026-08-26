@@ -107,7 +107,7 @@ function Modal({ open, onClose, children, size = "lg" }) {
 }
 
 // ── FlightDetail ────────────────────────────────────────────────────────────
-function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights, onAddReturn }) {
+function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights, onAddReturn, onDismissReturn }) {
   const [deleting, setDeleting] = React.useState(false);
   const [deleteError, setDeleteError] = React.useState(null);
   React.useEffect(() => { setDeleting(false); setDeleteError(null); }, [flight?.id]);
@@ -124,7 +124,7 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
   const from     = { ..._airport(firstLeg.from), code: firstLeg.from };
   const to       = { ..._airport(lastLeg.to),    code: lastLeg.to };
   const travelers = firstLeg.travelers.map(_familyById).filter(Boolean);
-  const noReturn = allFlights && !_hasLoggedReturn(lastLeg, allFlights) && !window.MGData.isHomeArrival(lastLeg);
+  const noReturn = allFlights && !lastLeg.returnDismissed && !_hasLoggedReturn(lastLeg, allFlights) && !window.MGData.isHomeArrival(lastLeg);
   const airborneLeg = isJourney ? legs.find((l) => _flightStatus(l, now) === "airborne") : flight;
   // The leg currently underway during a layover — i.e. which gap in the
   // chain "now" falls into — so the detail panel can name the right city.
@@ -264,9 +264,14 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
             </React.Fragment>
           ))}
           {noReturn && (
-            <button className="card__no-return fd__no-return" onClick={handleAddReturn}>
-              Return not logged — click to add
-            </button>
+            <div className="fd__no-return-row">
+              <button className="card__no-return fd__no-return" onClick={handleAddReturn}>
+                Return not logged — click to add
+              </button>
+              <button className="fd__dismiss" onClick={() => onDismissReturn(lastLeg)} title="Not expecting a return leg for this trip">
+                Dismiss
+              </button>
+            </div>
           )}
         </div>
 
