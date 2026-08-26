@@ -254,4 +254,53 @@ function RouteRibbon({ from, to, progress = 0, status = "scheduled" }) {
   );
 }
 
-Object.assign(window, { RouteMap, RouteRibbon });
+// ── MultiRouteRibbon ────────────────────────────────────────────────────────
+// Card-sized route diagram for a connecting-flight journey: origin, one dot
+// per layover city, destination — all on one line. Each waypoint sits at the
+// time-fraction of its layover's midpoint (not just evenly spaced), so a
+// short layover reads as a quick touch and a long one visibly takes up more
+// of the line, same idea as the plane's position on a live RouteRibbon.
+function MultiRouteRibbon({ legs, status, now, height, showLabels = false }) {
+  const W = 280, H = height ?? 60;
+  const pad = 28;
+  const first = legs[0], last = legs[legs.length - 1];
+  const totalStart = first.depart.getTime(), totalEnd = last.arrive.getTime();
+  const totalSpan = Math.max(1, totalEnd - totalStart);
+
+  const points = [{ code: first.from, t: 0 }];
+  for (let i = 0; i < legs.length - 1; i++) {
+    const mid = (legs[i].arrive.getTime() + legs[i + 1].depart.getTime()) / 2;
+    points.push({ code: legs[i].to, t: Math.max(0, Math.min(1, (mid - totalStart) / totalSpan)), waypoint: true });
+  }
+  points.push({ code: last.to, t: 1 });
+
+  const x = (t) => pad + t * (W - pad * 2);
+  const y = H / 2;
+  const elapsed = now ? Math.max(0, Math.min(1, (now.getTime() - totalStart) / totalSpan)) : 0;
+  const traveling = status === "airborne" || status === "layover";
+  const dashed = status === "scheduled" || status === "boarding";
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="route-ribbon route-ribbon--multi" preserveAspectRatio="none">
+      <line x1={x(0)} y1={y} x2={x(1)} y2={y} stroke="var(--ink)" strokeOpacity="0.18"
+            strokeWidth="1.5" strokeDasharray={dashed ? "3 3" : "0"} />
+      {traveling && <line x1={x(0)} y1={y} x2={x(elapsed)} y2={y} stroke="var(--accent)" strokeWidth="1.5" />}
+      {status === "landed" && <line x1={x(0)} y1={y} x2={x(1)} y2={y} stroke="var(--sage)" strokeWidth="1.5" />}
+      {points.map((p, i) => {
+        const isLast = i === points.length - 1;
+        const fill = p.waypoint ? "var(--paper)" : (isLast ? (status === "landed" ? "var(--sage)" : "var(--accent)") : "var(--paper)");
+        return (
+          <g key={i}>
+            <circle cx={x(p.t)} cy={y} r={p.waypoint ? 3 : 4}
+                    fill={fill} stroke="var(--ink)" strokeWidth={p.waypoint ? 1 : 1.2} />
+            {showLabels && (
+              <text x={x(p.t)} y={y - 14} textAnchor="middle" className="route-map__code">{p.code}</text>
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+Object.assign(window, { RouteMap, RouteRibbon, MultiRouteRibbon });

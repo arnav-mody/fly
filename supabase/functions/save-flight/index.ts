@@ -40,9 +40,31 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
+
+    // Lightweight path: retroactively link two already-saved legs into one
+    // journey (see the "Connects to X — link as one trip?" prompt on the
+    // board) — just sets a shared journey_id on both rows, no other field
+    // touched. Kept separate from the full save path below since neither
+    // row's other data needs re-validating.
+    if (Array.isArray(body.linkFlightIds) && body.linkFlightIds.length === 2) {
+      const [idA, idB] = body.linkFlightIds;
+      if (typeof idA !== "string" || typeof idB !== "string") {
+        return json({ ok: false, error: "linkFlightIds must be two flight ids" }, 400);
+      }
+      const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
+      const { data: rows, error: fetchErr } = await supabase
+        .from("flights").select("id, journey_id").in("id", [idA, idB]);
+      if (fetchErr) return json({ ok: false, error: fetchErr.message }, 500);
+      if (!rows || rows.length !== 2) return json({ ok: false, error: "Couldn't find both flights to link" }, 404);
+      const journeyId = rows.find((r) => r.journey_id)?.journey_id ?? crypto.randomUUID();
+      const { error: updateErr } = await supabase.from("flights").update({ journey_id: journeyId }).in("id", [idA, idB]);
+      if (updateErr) return json({ ok: false, error: updateErr.message }, 500);
+      return json({ ok: true, journeyId });
+    }
+
     const {
       flightId, mode: rawMode, airline_code, flight_number, from_airport, to_airport,
-      depart_at, arrive_at, note, source, imagePath, travelerIds, submittedBy,
+      depart_at, arrive_at, note, source, imagePath, travelerIds, submittedBy, journeyId,
     } = body;
     const isEdit = !!flightId && typeof flightId === "string";
     const mode = MODES.includes(rawMode) ? rawMode : "flight";
@@ -95,6 +117,7 @@ Deno.serve(async (req) => {
       source: source || "upload",
       source_image_path: imagePath || null,
       submitted_by: submittedBy || null,
+      journey_id: journeyId || null,
     };
 
     const { data: flight, error: flightErr } = isEdit

@@ -71,28 +71,66 @@ function App() {
 
   const allFlights = [...FLIGHTS, ...dbFlights];
 
-  // Bucket by status
+  // Group legs sharing a journeyId into one journey item — everything else
+  // (including a journeyId whose only partner got deleted) stays solo. See
+  // buildJourneys in data.js.
+  const boardItems = React.useMemo(() => window.MGData.buildJourneys(allFlights), [allFlights]);
+  const soloFlights = React.useMemo(() => boardItems.filter((i) => i.kind === "solo").map((i) => i.flight), [boardItems]);
+  const journeyItems = React.useMemo(() => boardItems.filter((i) => i.kind === "journey"), [boardItems]);
+
+  // Bucket solo flights by status — unchanged from before journeys existed;
+  // this is what the hero sections key off of (they need real single-flight
+  // fields like cruisingAlt/aircraft that a journey doesn't have one clean
+  // value for, so journeys don't get hero treatment, just a rail card).
   const byStatus = React.useMemo(() => {
     const buckets = { airborne: [], boarding: [], scheduled: [], landed: [], past: [] };
-    for (const f of allFlights) {
+    for (const f of soloFlights) {
       const s = flightStatus(f, now);
       buckets[s].push(f);
     }
-    // Sort each bucket sensibly.
     buckets.airborne.sort((a, b) => a.arrive - b.arrive);
     buckets.boarding.sort((a, b) => a.depart - b.depart);
     buckets.scheduled.sort((a, b) => a.depart - b.depart);
     buckets.landed.sort((a, b) => b.arrive - a.arrive); // most recent first
     buckets.past.sort((a, b) => b.depart - a.depart);
     return buckets;
-  }, [allFlights, now]);
+  }, [soloFlights, now]);
+
+  // Journeys, bucketed the same way (a "layover" reads into the same rail as
+  // "taking off soon" — both are time-sensitive, happening-right-now cards).
+  const journeyByStatus = React.useMemo(() => {
+    const buckets = { airborne: [], boarding: [], scheduled: [], landed: [] };
+    for (const item of journeyItems) {
+      let s = window.MGData.itemStatus(item, now);
+      if (s === "layover") s = "boarding";
+      if (buckets[s]) buckets[s].push(item);
+    }
+    buckets.airborne.sort((a, b) => a.summary.arrive - b.summary.arrive);
+    buckets.boarding.sort((a, b) => a.summary.depart - b.summary.depart);
+    buckets.scheduled.sort((a, b) => a.summary.depart - b.summary.depart);
+    buckets.landed.sort((a, b) => b.summary.arrive - a.summary.arrive);
+    return buckets;
+  }, [journeyItems, now]);
 
   // Person filter — applied across all buckets.
   const f = (list) => filterIds.length ? list.filter((x) => x.travelers.some((id) => filterIds.includes(id))) : list;
+  const fj = (list) => filterIds.length ? list.filter((x) => x.summary.travelers.some((id) => filterIds.includes(id))) : list;
 
   // AddTripModal does its own saving (via the save-flight Edge Function) —
   // this just re-syncs the board once it's done.
   const handleSubmit = () => refreshFlights();
+
+  // "Connects to X — link as one trip?" — the retroactive counterpart to the
+  // "add a connecting flight" flow at upload time, for two legs that got
+  // logged separately. Just sets a shared journey_id on both rows.
+  const handleLinkConnection = (flightA, flightB) => {
+    window.supabaseClient.functions.invoke("save-flight", {
+      body: { linkFlightIds: [flightA.id, flightB.id] },
+    }).then(({ data, error }) => {
+      if (error || !data || !data.ok) { console.error("Couldn't link flights:", error || data); return; }
+      refreshFlights();
+    });
+  };
 
   return (
     <div className="app">
@@ -115,12 +153,19 @@ function App() {
               scheduled: f(byStatus.scheduled),
               landed: f(byStatus.landed),
             }}
+            journeyBuckets={{
+              airborne: fj(journeyByStatus.airborne),
+              boarding: fj(journeyByStatus.boarding),
+              scheduled: fj(journeyByStatus.scheduled),
+              landed: fj(journeyByStatus.landed),
+            }}
             allFlights={allFlights}
             now={now}
             heroOn
             onOpen={setOpenFlight}
             onAdd={() => setAddOpen(true)}
             onAddReturn={(flight) => setReturnPrefill({ from: flight.to, to: flight.from, travelers: flight.travelers, mode: flight.mode })}
+            onLinkConnection={handleLinkConnection}
           />
         )}
         {view === "calendar" && (
@@ -275,7 +320,8 @@ function PeopleFilter({ ids, onChange }) {
 }
 
 // ── Board ───────────────────────────────────────────────────────────────────
-function Board({ buckets, now, heroOn, onOpen, onAdd, allFlights, onAddReturn }) {
+function Board({ buckets, journeyBuckets, now, heroOn, onOpen, onAdd, allFlights, onAddReturn, onLinkConnection }) {
+  const jb = journeyBuckets || { airborne: [], boarding: [], scheduled: [], landed: [] };
   const airborne = buckets.airborne;
   const showAirborneHero = heroOn && airborne.length > 0;
   const showBoardingHero = heroOn && airborne.length === 0 && buckets.boarding.length > 0;
@@ -294,51 +340,55 @@ function Board({ buckets, now, heroOn, onOpen, onAdd, allFlights, onAddReturn })
         <HeroBoarding flight={boardingHeroFlight} now={now} onOpen={onOpen} />
       )}
 
-      {/* Taking off soon */}
-      {remainingBoarding.length > 0 && (
+      {/* Taking off soon (and layovers underway) */}
+      {(remainingBoarding.length > 0 || jb.boarding.length > 0) && (
         <section className="rail">
           <SectionHead
             kicker="Next 24 hours"
             title="Taking off soon"
-            count={buckets.boarding.length}
+            count={buckets.boarding.length + jb.boarding.length}
           />
           <div className="rail__grid">
             {remainingBoarding.map((f) => (
-              <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} />
+              <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} onLinkConnection={onLinkConnection} />
             ))}
+            {jb.boarding.map((item) => <JourneyCard key={item.id} item={item} onOpen={onOpen} now={now} />)}
           </div>
         </section>
       )}
 
       {/* Airborne fallback row (only shown when the hero is toggled off) */}
-      {remainingAirborne.length > 0 && (
+      {(remainingAirborne.length > 0 || jb.airborne.length > 0) && (
         <section className="rail">
-          <SectionHead kicker="Right now" title="In the air" count={remainingAirborne.length} />
+          <SectionHead kicker="Right now" title="In the air" count={remainingAirborne.length + jb.airborne.length} />
           <div className="rail__grid">
             {remainingAirborne.map((f) => <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} />)}
+            {jb.airborne.map((item) => <JourneyCard key={item.id} item={item} onOpen={onOpen} now={now} />)}
           </div>
         </section>
       )}
 
       {/* This week */}
       <section className="rail">
-        <SectionHead kicker="This week & beyond" title="On the horizon" count={buckets.scheduled.length} />
-        {buckets.scheduled.length === 0
+        <SectionHead kicker="This week & beyond" title="On the horizon" count={buckets.scheduled.length + jb.scheduled.length} />
+        {buckets.scheduled.length === 0 && jb.scheduled.length === 0
           ? <EmptyRow text="No upcoming trips. Tell the family to start planning something!" />
           : (
             <div className="rail__grid">
-              {buckets.scheduled.map((f) => <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} />)}
+              {buckets.scheduled.map((f) => <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onLinkConnection={onLinkConnection} />)}
+              {jb.scheduled.map((item) => <JourneyCard key={item.id} item={item} onOpen={onOpen} now={now} />)}
             </div>
           )
         }
       </section>
 
       {/* Just landed */}
-      {buckets.landed.length > 0 && (
+      {(buckets.landed.length > 0 || jb.landed.length > 0) && (
         <section className="rail rail--landed">
-          <SectionHead kicker="Welcome home" title="Just landed" count={buckets.landed.length} />
+          <SectionHead kicker="Welcome home" title="Just landed" count={buckets.landed.length + jb.landed.length} />
           <div className="rail__grid">
-            {buckets.landed.map((f) => <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} />)}
+            {buckets.landed.map((f) => <FlightCard key={f.id} flight={f} onOpen={onOpen} now={now} allFlights={allFlights} onAddReturn={onAddReturn} onLinkConnection={onLinkConnection} />)}
+            {jb.landed.map((item) => <JourneyCard key={item.id} item={item} onOpen={onOpen} now={now} />)}
           </div>
         </section>
       )}
@@ -710,6 +760,7 @@ function mapDbFlight(row) {
     to: row.to_airport,
     depart: new Date(row.depart_at),
     arrive: new Date(row.arrive_at),
+    journeyId: row.journey_id || null,
     travelers: (row.flight_travelers || []).map((t) => t.family_member_id),
     aircraft: row.aircraft || undefined,
     seat: row.seat || undefined,

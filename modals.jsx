@@ -114,27 +114,38 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
   React.useEffect(() => { setDeleting(false); setDeleteError(null); }, [flight?.id]);
 
   if (!flight) return null;
-  const status   = _flightStatus(flight, now);
-  const mode     = _modeOf(flight);
+  const isJourney = Array.isArray(flight.legs) && flight.legs.length > 1;
+  const legs      = isJourney ? flight.legs : [flight];
+  const firstLeg  = legs[0], lastLeg = legs[legs.length - 1];
+
+  const status   = isJourney ? window.MGData.journeyStatus(legs, now) : _flightStatus(flight, now);
+  const mode     = _modeOf(firstLeg);
   const isFlight = mode === "flight";
-  const meta     = _modeMeta(flight);
-  const al       = _airline(flight.airline);
-  const from     = { ..._airport(flight.from), code: flight.from };
-  const to       = { ..._airport(flight.to),   code: flight.to };
-  const travelers = flight.travelers.map(_familyById).filter(Boolean);
-  const noReturn = (status === "landed" || status === "past") && allFlights && !_hasLoggedReturn(flight, allFlights);
+  const meta     = _modeMeta(firstLeg);
+  const al       = _airline(firstLeg.airline);
+  const from     = { ..._airport(firstLeg.from), code: firstLeg.from };
+  const to       = { ..._airport(lastLeg.to),    code: lastLeg.to };
+  const travelers = firstLeg.travelers.map(_familyById).filter(Boolean);
+  const noReturn = (status === "landed" || status === "past") && allFlights && !_hasLoggedReturn(lastLeg, allFlights);
+  const airborneLeg = isJourney ? legs.find((l) => _flightStatus(l, now) === "airborne") : flight;
+  // The leg currently underway during a layover — i.e. which gap in the
+  // chain "now" falls into — so the detail panel can name the right city.
+  const layoverIdx = isJourney ? legs.findIndex((l, i) => i < legs.length - 1 && now >= l.arrive && now < legs[i + 1].depart) : -1;
+
+  const handleAddReturn = () => onAddReturn({ from: from.code, to: to.code, travelers: firstLeg.travelers, mode });
 
   const handleDelete = () => {
-    if (!window.confirm(`Delete this trip (${flight.from} → ${flight.to})? This can't be undone.`)) return;
+    const label = isJourney ? `this trip (${from.code} → ${to.code}, ${legs.length} legs)` : `this trip (${flight.from} → ${flight.to})`;
+    if (!window.confirm(`Delete ${label}? This can't be undone.`)) return;
     setDeleting(true);
     setDeleteError(null);
-    withTimeout(
-      window.supabaseClient.functions.invoke("delete-flight", { body: { flightId: flight.id } }),
-      15000, "Deleting"
-    ).then(async ({ data, error }) => {
+    Promise.all(legs.map((l) =>
+      withTimeout(window.supabaseClient.functions.invoke("delete-flight", { body: { flightId: l.id } }), 15000, "Deleting")
+    )).then(async (results) => {
       setDeleting(false);
-      if (error || !data || !data.ok) {
-        const message = (data && data.error) || await readFunctionError(error) || "Couldn't delete this trip — mind trying again?";
+      const failed = results.find(({ data, error }) => error || !data || !data.ok);
+      if (failed) {
+        const message = (failed.data && failed.data.error) || await readFunctionError(failed.error) || "Couldn't delete this trip — mind trying again?";
         setDeleteError(message);
         return;
       }
@@ -150,14 +161,16 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
     <Modal open={!!flight} onClose={onClose} size="lg">
       <div className="fd">
         {/* Hero — route map + status */}
-        <div className={`fd__hero fd__hero--${status}`}>
+        <div className={`fd__hero fd__hero--${status === "layover" ? "boarding" : status}`}>
           <div className="fd__hero-inner">
             <div className="fd__statusrow">
               <StatusPill status={status} mode={mode} />
               <span className="fd__id">
-                {isFlight
-                  ? <><span style={{ color: al.color, fontWeight: 700 }}>{flight.airline}</span>{flight.number}</>
-                  : <span style={{ fontWeight: 700 }}>{meta.icon} {meta.label}</span>}
+                {isJourney
+                  ? <span style={{ fontWeight: 700 }}>{legs.length} legs</span>
+                  : isFlight
+                    ? <><span style={{ color: al.color, fontWeight: 700 }}>{flight.airline}</span>{flight.number}</>
+                    : <span style={{ fontWeight: 700 }}>{meta.icon} {meta.label}</span>}
               </span>
             </div>
             <h1 className="fd__title">
@@ -171,11 +184,18 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
                 {isFlight && <span className="fd__city-code">{to.code}</span>}
               </span>
             </h1>
-            <div className="fd__date">{fmtDateLong(flight.depart)}</div>
+            {isJourney && (
+              <div className="fd__via">via {legs.slice(0, -1).map((l) => _airport(l.to).city).join(", ")}</div>
+            )}
+            <div className="fd__date">{fmtDateLong(firstLeg.depart)}</div>
             <div className="fd__map">
-              {isFlight && _hasCoords(from, to)
-                ? <RouteMap from={from} to={to} progress={flight.progress ?? 0} status={status} height={280} />
-                : <div className="tcard__mode-block" style={{ height: 280 }}>{meta.icon}</div>}
+              {!isFlight
+                ? <div className="tcard__mode-block" style={{ height: 280 }}>{meta.icon}</div>
+                : isJourney
+                  ? <MultiRouteRibbon legs={legs} status={status} now={now} height={280} showLabels />
+                  : _hasCoords(from, to)
+                    ? <RouteMap from={from} to={to} progress={flight.progress ?? 0} status={status} height={280} />
+                    : <div className="tcard__mode-block" style={{ height: 280 }}>{meta.icon}</div>}
             </div>
           </div>
         </div>
@@ -184,8 +204,8 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
         <div className="fd__statusdetail">
           {status === "airborne" && (
             <>
-              <FlightProgress flight={flight} now={now} />
-              {isFlight && (
+              <FlightProgress flight={airborneLeg} now={now} />
+              {isFlight && !isJourney && (
                 <div className="fd__stats">
                   <Stat label="Altitude"  value={`${flight.cruisingAlt?.toLocaleString() ?? "—"} ft`} />
                   <Stat label="Ground speed" value={`${flight.speed ?? "—"} kts`} />
@@ -194,8 +214,11 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
               )}
             </>
           )}
+          {status === "layover" && layoverIdx >= 0 && (
+            <Countdown target={legs[layoverIdx + 1].depart} label={`On a layover in ${_airport(legs[layoverIdx].to).city} — next leg in`} dramatic now={now} />
+          )}
           {(status === "boarding" || status === "scheduled") && (
-            <Countdown target={flight.depart} label={isFlight ? "Taking off in" : "Departs in"} dramatic now={now} />
+            <Countdown target={firstLeg.depart} label={isFlight ? "Taking off in" : "Departs in"} dramatic now={now} />
           )}
           {status === "landed" && (
             <div className="fd__landed">
@@ -203,7 +226,7 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
               <div>
                 <div className="fd__landed-title">{isFlight ? "Landed safely" : "Arrived safely"}</div>
                 <div className="fd__landed-sub">
-                  {fmtDuration(now - flight.arrive)} ago · arrived {fmtTime(flight.arrive)} {to.tz}
+                  {fmtDuration(now - lastLeg.arrive)} ago · arrived {fmtTime(lastLeg.arrive)} {to.tz}
                 </div>
               </div>
             </div>
@@ -211,31 +234,36 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
         </div>
 
         {/* Note from the traveler */}
-        {flight.note && (
+        {firstLeg.note && (
           <div className="fd__note">
             <div className="fd__note-kicker">A note from {travelers[0]?.first}</div>
-            <p>"{flight.note}"</p>
+            <p>"{firstLeg.note}"</p>
           </div>
         )}
 
         {/* Itinerary details */}
         <div className="fd__details">
           <h3 className="fd__h">Itinerary</h3>
-          <BoardingPassStrip flight={flight} />
+          {legs.map((leg, i) => (
+            <React.Fragment key={leg.id}>
+              <BoardingPassStrip flight={leg} />
+              {isFlight && (
+                <a className="fa-link fd__fa" href={_flightAwareUrl(leg)} target="_blank" rel="noopener noreferrer">
+                  Track live on FlightAware <span className="fa-link__arrow">↗</span>
+                </a>
+              )}
+              {i < legs.length - 1 && (
+                <div className="fd__layover">
+                  <span className="fd__layover-icon" aria-hidden="true">⏱</span>
+                  Layover in {_airport(leg.to).city} — {fmtDuration(legs[i + 1].depart - leg.arrive)}
+                </div>
+              )}
+            </React.Fragment>
+          ))}
           {noReturn && (
-            <button className="card__no-return fd__no-return" onClick={() => onAddReturn(flight)}>
+            <button className="card__no-return fd__no-return" onClick={handleAddReturn}>
               Return not logged — click to add
             </button>
-          )}
-          {isFlight && (
-            <a
-              className="fa-link fd__fa"
-              href={_flightAwareUrl(flight)}
-              target="_blank" rel="noopener noreferrer"
-            >
-              Track live on FlightAware <span className="fa-link__arrow">↗</span>
-            </a>
-          )}
           )}
         </div>
 
@@ -271,9 +299,17 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
         <div className="fd__manage">
           {deleteError && <div className="fd__manage-error">{deleteError}</div>}
           <div className="fd__manage-actions">
-            <button className="fd__manage-btn" onClick={() => onEdit(flight)} disabled={deleting}>
-              Edit trip
-            </button>
+            {isJourney ? (
+              legs.map((leg, i) => (
+                <button key={leg.id} className="fd__manage-btn" onClick={() => onEdit(leg)} disabled={deleting}>
+                  Edit leg {i + 1}
+                </button>
+              ))
+            ) : (
+              <button className="fd__manage-btn" onClick={() => onEdit(flight)} disabled={deleting}>
+                Edit trip
+              </button>
+            )}
             <button className="fd__manage-btn fd__manage-btn--danger" onClick={handleDelete} disabled={deleting}>
               {deleting ? <><span className="at__spinner" aria-hidden="true" /> Deleting…</> : "Delete trip"}
             </button>
@@ -348,10 +384,28 @@ function placeCode(value) {
   return m ? m[1].toUpperCase() : value.trim();
 }
 
+const EMPTY_LEG2_FORM = {
+  airline: "", number: "", from: "", to: "", date: "", departTime: "", arriveTime: "",
+};
+
 function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
   const [mode, setMode] = React.useState("flight");     // "flight" | "train" | "car"
   const [form, setForm] = React.useState(EMPTY_TRIP_FORM);
   const [roundTrip, setRoundTrip] = React.useState(false); // create-flow only — logs both legs at once
+
+  // Connecting flight — create-flow only, mutually exclusive with round trip.
+  // Same idea as the round-trip flow (save two legs in one submit) but the
+  // two legs share a journeyId instead of reversing the route, so the board
+  // can show them as one card (see buildJourneys in data.js).
+  const [addingConnection, setAddingConnection] = React.useState(false);
+  const [leg2, setLeg2] = React.useState(EMPTY_LEG2_FORM);
+  const [leg2PasteOpen, setLeg2PasteOpen] = React.useState(false);
+  const [leg2PasteText, setLeg2PasteText] = React.useState("");
+  const [leg2Parsing, setLeg2Parsing] = React.useState(false);
+  const [leg2Parsed, setLeg2Parsed] = React.useState(null);
+  const [leg2Error, setLeg2Error] = React.useState(null);
+  const [leg2Uploading, setLeg2Uploading] = React.useState(false);
+  const [leg2ImagePath, setLeg2ImagePath] = React.useState(null);
 
   // Paste/type box — flight mode only, real AI parsing via parse-flight
   // (text instead of image).
@@ -405,6 +459,9 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
         setMode("flight"); setForm(EMPTY_TRIP_FORM); setRoundTrip(false);
         setPasteOpen(false); setPasteText(""); setParsingText(false); setTextParsed(null); setTextError(null);
         setUploading(false); setUploadParsed(null); setUploadError(null); setImagePath(null);
+        setAddingConnection(false); setLeg2(EMPTY_LEG2_FORM);
+        setLeg2PasteOpen(false); setLeg2PasteText(""); setLeg2Parsing(false); setLeg2Parsed(null); setLeg2Error(null);
+        setLeg2Uploading(false); setLeg2ImagePath(null);
         setSaving(false); setSubmitError(null);
       }, 200);
     }
@@ -436,6 +493,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
   const submit = () => {
     const isFlight = mode === "flight";
     const doRoundTrip = roundTrip && !editing;
+    const doConnection = addingConnection && !editing;
     const missing = [];
     if (!form.from) missing.push("where from");
     if (!form.to) missing.push("where to");
@@ -445,6 +503,12 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
     if (doRoundTrip) {
       if (!form.returnDate) missing.push("the return date");
       if (!form.returnDepartTime) missing.push("a return departure time");
+    }
+    if (doConnection) {
+      if (!leg2.from) missing.push("the connecting leg's origin");
+      if (!leg2.to) missing.push("the connecting leg's destination");
+      if (!leg2.date) missing.push("the connecting leg's date");
+      if (!leg2.departTime) missing.push("the connecting leg's departure time");
     }
     if (missing.length) {
       setSubmitError(`Still need: ${missing.join(", ")}.`);
@@ -468,6 +532,12 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
         ? new Date(`${form.date}T${form.arriveTime}:00Z`)
         : new Date(departAt.getTime() + 2 * 60 * 60 * 1000);
 
+      // Two legs sharing a journeyId collapse into one card on the board
+      // (see buildJourneys in data.js) — generated client-side since both
+      // legs need the same id and the first save happens before the second
+      // one exists.
+      const journeyId = doConnection && window.crypto?.randomUUID ? window.crypto.randomUUID() : null;
+
       const outboundBody = {
         flightId: editing ? editing.id : undefined,
         mode,
@@ -481,6 +551,10 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
         source: editing ? "edit" : (imagePath ? "upload" : (textParsed ? "paste" : "manual")),
         imagePath: imagePath || null,
         travelerIds: form.travelers,
+        // Preserve an existing journey link when editing a single leg of one —
+        // otherwise every edit would silently unlink it (nothing else in this
+        // form knows or cares that the leg is part of a journey).
+        journeyId: journeyId || (editing ? editing.journeyId || undefined : undefined),
       };
 
       withTimeout(window.supabaseClient.functions.invoke("save-flight", { body: outboundBody }), 20000, "Saving")
@@ -491,10 +565,49 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
             setSubmitError(message);
             return;
           }
-          if (!doRoundTrip) {
+          if (!doRoundTrip && !doConnection) {
             setSaving(false);
             onSubmit(data.flight);
             onClose();
+            return;
+          }
+
+          if (doConnection) {
+            const leg2FromCode = placeCode(leg2.from), leg2ToCode = placeCode(leg2.to);
+            const leg2DepartAt = new Date(`${leg2.date}T${leg2.departTime}:00Z`);
+            const leg2ArriveAt = leg2.arriveTime
+              ? new Date(`${leg2.date}T${leg2.arriveTime}:00Z`)
+              : new Date(leg2DepartAt.getTime() + 2 * 60 * 60 * 1000);
+            withTimeout(window.supabaseClient.functions.invoke("save-flight", {
+              body: {
+                mode,
+                airline_code: isFlight ? (leg2.airline || null) : null,
+                flight_number: isFlight ? (leg2.number || null) : null,
+                from_airport: leg2FromCode,
+                to_airport: leg2ToCode,
+                depart_at: leg2DepartAt.toISOString(),
+                arrive_at: leg2ArriveAt.toISOString(),
+                note: form.note || null,
+                source: leg2ImagePath ? "upload" : (leg2Parsed ? "paste" : "manual"),
+                imagePath: leg2ImagePath || null,
+                travelerIds: form.travelers,
+                journeyId,
+              },
+            }), 20000, "Saving connecting leg").then(async ({ data: leg2Data, error: leg2Error2 }) => {
+              setSaving(false);
+              if (leg2Error2 || !leg2Data || !leg2Data.ok) {
+                const message = (leg2Data && leg2Data.error) || await readFunctionError(leg2Error2) || "something went wrong";
+                onSubmit(data.flight);
+                setSubmitError(`First leg saved, but the connecting leg didn't: ${message}. You can add it separately and link it from the flight's card.`);
+                return;
+              }
+              onSubmit(data.flight);
+              onClose();
+            }).catch((err) => {
+              setSaving(false);
+              onSubmit(data.flight);
+              setSubmitError(`First leg saved, but the connecting leg didn't: ${String((err && err.message) || err)}`);
+            });
             return;
           }
 
@@ -603,6 +716,103 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
       setUploadError(String((err && err.message) || err));
     });
   };
+
+  // Connecting leg — same parse-then-confirm pattern as leg 1, just writing
+  // into leg2's own state instead of form.
+  const applyParsed2 = (p) => {
+    setLeg2((l) => ({
+      ...l,
+      airline: (p.airline_code || l.airline || "").toUpperCase(),
+      number: p.flight_number || l.number,
+      from: p.from_airport ? placeDisplay(p.from_airport) : l.from,
+      to: p.to_airport ? placeDisplay(p.to_airport) : l.to,
+      date: p.date || l.date,
+      departTime: p.depart_time || l.departTime,
+      arriveTime: p.arrive_time || l.arriveTime,
+    }));
+  };
+
+  const parseText2 = () => {
+    if (!leg2PasteText.trim()) return;
+    setLeg2Parsing(true);
+    setLeg2Error(null);
+    withTimeout(window.supabaseClient.functions.invoke("parse-flight", {
+      body: { text: leg2PasteText },
+    }), 30000, "Reading").then(async ({ data, error }) => {
+      setLeg2Parsing(false);
+      if (error || !data || !data.ok) {
+        const message = (data && data.error) || await readFunctionError(error) || "Couldn't make sense of that — try filling in the fields below instead?";
+        setLeg2Error(message);
+        return;
+      }
+      setLeg2Parsed(data.parsed);
+      applyParsed2(data.parsed);
+    }).catch((err) => {
+      setLeg2Parsing(false);
+      setLeg2Error(String((err && err.message) || err));
+    });
+  };
+
+  const handleFileSelect2 = (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setLeg2Uploading(true);
+    setLeg2Error(null);
+    setLeg2Parsed(null);
+
+    resizeImageForUpload(file).then((blob) => {
+      const reader = new FileReader();
+      reader.onerror = () => { setLeg2Uploading(false); setLeg2Error("Couldn't read that file — try a different one?"); };
+      reader.onload = () => {
+        const base64 = String(reader.result).split(",")[1];
+        withTimeout(window.supabaseClient.functions.invoke("parse-flight", {
+          body: { image: base64, mediaType: "image/jpeg" },
+        }), 30000, "Reading").then(async ({ data, error }) => {
+          setLeg2Uploading(false);
+          if (error || !data || !data.ok) {
+            const message = (data && data.error) || await readFunctionError(error) || "Couldn't read that image — mind typing the details in below?";
+            setLeg2Error(message);
+            return;
+          }
+          setLeg2ImagePath(data.imagePath);
+          setLeg2Parsed(data.parsed);
+          applyParsed2(data.parsed);
+        }).catch((err) => {
+          setLeg2Uploading(false);
+          setLeg2Error(String((err && err.message) || err));
+        });
+      };
+      reader.readAsDataURL(blob);
+    }).catch((err) => {
+      setLeg2Uploading(false);
+      setLeg2Error(String((err && err.message) || err));
+    });
+  };
+
+  // Soft plausibility check on the two legs — never blocks saving, just
+  // flags when this doesn't look like a real connection (different city than
+  // where leg 1 lands, or a gap too short/long to be a layover) so whoever's
+  // entering it can double check before it's shown as one journey.
+  let connectionWarning = null;
+  if (addingConnection && form.to && leg2.from && leg2.date && leg2.departTime) {
+    const leg1To = placeCode(form.to).toUpperCase();
+    const leg2From = placeCode(leg2.from).toUpperCase();
+    if (leg1To !== leg2From) {
+      connectionWarning = `Leg 1 lands at ${leg1To}, but leg 2 leaves from ${leg2From} — that's not a connection at the same airport. It'll still save, but double-check this is right.`;
+    } else if (form.date && form.departTime) {
+      const leg1Arrive = form.arriveTime
+        ? new Date(`${form.date}T${form.arriveTime}:00Z`)
+        : new Date(new Date(`${form.date}T${form.departTime}:00Z`).getTime() + 2 * 60 * 60 * 1000);
+      const leg2Depart = new Date(`${leg2.date}T${leg2.departTime}:00Z`);
+      const gapMs = leg2Depart - leg1Arrive;
+      if (gapMs < 20 * 60 * 1000) {
+        connectionWarning = "That's a very short layover (under 20 minutes) — worth double-checking the times.";
+      } else if (gapMs > 8 * 60 * 60 * 1000) {
+        connectionWarning = "That's more than an 8-hour gap — more like a separate later trip than a connection. It'll still save linked, but consider unchecking this if that's not what you mean.";
+      }
+    }
+  }
 
   return (
     <Modal open={open} onClose={onClose} size="md">
@@ -790,7 +1000,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
           </div>
           <div className="at__hint">Local time at departure/arrival — enter exactly what's printed on the ticket.</div>
 
-          {!editing && (
+          {!editing && !addingConnection && (
             <label className="at__checkbox">
               <input type="checkbox" checked={roundTrip} onChange={(e) => setRoundTrip(e.target.checked)} />
               <span>This is a round trip — log the return leg too</span>
@@ -813,6 +1023,122 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
                 </label>
               </div>
             </>
+          )}
+
+          {mode === "flight" && !editing && !roundTrip && (
+            <label className="at__checkbox">
+              <input type="checkbox" checked={addingConnection} onChange={(e) => setAddingConnection(e.target.checked)} />
+              <span>This is a connecting flight — I have a second boarding pass to add</span>
+            </label>
+          )}
+          {addingConnection && !editing && (
+            <div className="at__leg2">
+              <div className="at__leg2-head">Connecting leg</div>
+              <label className="at__upload-cta at__upload-cta--small" htmlFor="at-file-input-leg2">
+                <input
+                  id="at-file-input-leg2"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileSelect2}
+                  style={{ display: "none" }}
+                />
+                <span className="at__upload-cta-icon">⬆</span>
+                <span>Upload the connecting boarding pass to autofill</span>
+              </label>
+              <button type="button" className="at__paste-link" onClick={() => setLeg2PasteOpen((v) => !v)}>
+                {leg2PasteOpen ? "Hide paste box" : "or paste in the connecting leg's details"}
+              </button>
+
+              {leg2Uploading && (
+                <div className="at__parsed at__parsed--pending">
+                  <span className="at__spinner" aria-hidden="true" />
+                  Reading your boarding pass…
+                </div>
+              )}
+              {leg2Error && (
+                <div className="at__parsed at__parsed--error">
+                  <div className="at__parsed-mark">!</div>
+                  <div>{leg2Error}</div>
+                </div>
+              )}
+              {leg2Parsed && !leg2Error && (
+                <div className="at__parsed">
+                  <div className="at__parsed-mark">✓</div>
+                  <div><strong>Got it!</strong> Double-check the fields below and save.</div>
+                </div>
+              )}
+              {leg2PasteOpen && (
+                <label className="at__field at__field--full">
+                  <span>Paste or type the connecting leg's details</span>
+                  <textarea
+                    rows={3}
+                    value={leg2PasteText}
+                    onChange={(e) => setLeg2PasteText(e.target.value)}
+                    placeholder={`United UA934, JFK to LHR, Sat May 23, depart 11:40pm arrive 11:55am`}
+                  />
+                  <button type="button" className="at__primary at__paste-btn" onClick={parseText2} disabled={leg2Parsing || !leg2PasteText.trim()}>
+                    {leg2Parsing ? <><span className="at__spinner at__spinner--light" aria-hidden="true" /> Reading…</> : "Fill in from text"}
+                  </button>
+                </label>
+              )}
+
+              <div className="at__row">
+                <label className="at__field">
+                  <span>Airline (optional)</span>
+                  <input
+                    list="at-airline-list"
+                    value={leg2.airline}
+                    onChange={(e) => setLeg2({ ...leg2, airline: e.target.value.toUpperCase() })}
+                    placeholder="UA"
+                  />
+                </label>
+                <label className="at__field">
+                  <span>Flight # (optional)</span>
+                  <input value={leg2.number} onChange={(e) => setLeg2({ ...leg2, number: e.target.value })} placeholder="934" />
+                </label>
+              </div>
+              <div className="at__row">
+                <label className="at__field">
+                  <span>From</span>
+                  <input
+                    list="at-airport-list"
+                    value={leg2.from}
+                    onChange={(e) => setLeg2({ ...leg2, from: e.target.value })}
+                    placeholder={form.to ? `Usually ${form.to}` : "New York"}
+                  />
+                </label>
+                <label className="at__field">
+                  <span>To</span>
+                  <input
+                    list="at-airport-list"
+                    value={leg2.to}
+                    onChange={(e) => setLeg2({ ...leg2, to: e.target.value })}
+                    placeholder="London"
+                  />
+                </label>
+              </div>
+              <label className="at__field at__field--full">
+                <span>Date</span>
+                <input type="date" value={leg2.date} onChange={(e) => setLeg2({ ...leg2, date: e.target.value })} />
+              </label>
+              <div className="at__row at__row--times">
+                <label className="at__field">
+                  <span>Depart</span>
+                  <input type="time" value={leg2.departTime} onChange={(e) => setLeg2({ ...leg2, departTime: e.target.value })} />
+                </label>
+                <label className="at__field">
+                  <span>Arrive</span>
+                  <input type="time" value={leg2.arriveTime} onChange={(e) => setLeg2({ ...leg2, arriveTime: e.target.value })} />
+                </label>
+              </div>
+              <div className="at__hint">Same travelers as above.</div>
+              {connectionWarning && (
+                <div className="at__parsed at__parsed--error">
+                  <div className="at__parsed-mark">!</div>
+                  <div>{connectionWarning}</div>
+                </div>
+              )}
+            </div>
           )}
 
           <div className="at__field at__field--full">

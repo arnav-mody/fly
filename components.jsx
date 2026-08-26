@@ -91,6 +91,7 @@ function StatusPill({ status, mode = "flight", label }) {
     boarding:  { txt: "Taking off soon",  cls: "pill--soon" },
     scheduled: { txt: "Upcoming",         cls: "pill--up" },
     landed:    { txt: mode === "flight" ? "Landed" : "Arrived", cls: "pill--landed" },
+    layover:   { txt: "On a layover",     cls: "pill--soon" },
     past:      { txt: "Past trip",        cls: "pill--past" },
   };
   const l = labels[status] ?? labels.scheduled;
@@ -190,6 +191,12 @@ function BoardingPassStrip({ flight, dense = false }) {
   const from = airport(flight.from);
   const to   = airport(flight.to);
   const dur  = fmtDuration(flight.arrive - flight.depart);
+  // Viewer's own local time, shown as a small second line under each — the
+  // airport's own time stays primary since that's what's on the ticket.
+  // Only appears when we actually know both zones and they're different
+  // (see viewerTime in data.js) — silently absent otherwise, never a guess.
+  const vDepart = window.MGData.viewerTime(flight.depart, from);
+  const vArrive = window.MGData.viewerTime(flight.arrive, to);
   return (
     <div className={`bp-strip ${dense ? "bp-strip--dense" : ""}`}>
       <div className="bp-strip__col">
@@ -203,10 +210,12 @@ function BoardingPassStrip({ flight, dense = false }) {
       <div className="bp-strip__col">
         <div className="bp-strip__lbl">Depart {from.tz}</div>
         <div className="bp-strip__val">{fmtTime(flight.depart)}</div>
+        {vDepart && <div className="bp-strip__sub">{vDepart.time} your time{vDepart.dayShift !== 0 && <span className="bp-strip__dayshift">{vDepart.dayShift > 0 ? " +1d" : " −1d"}</span>}</div>}
       </div>
       <div className="bp-strip__col">
         <div className="bp-strip__lbl">Arrive {to.tz}</div>
         <div className="bp-strip__val">{fmtTime(flight.arrive)}</div>
+        {vArrive && <div className="bp-strip__sub">{vArrive.time} your time{vArrive.dayShift !== 0 && <span className="bp-strip__dayshift">{vArrive.dayShift > 0 ? " +1d" : " −1d"}</span>}</div>}
       </div>
       <div className="bp-strip__col">
         <div className="bp-strip__lbl">Duration</div>
@@ -225,7 +234,7 @@ function BoardingPassStrip({ flight, dense = false }) {
 // ── FlightCard ──────────────────────────────────────────────────────────────
 // The everyday card — appears in "Taking off soon", "This week", "Just landed"
 // rails. Click → opens the flight detail modal.
-function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn }) {
+function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn, onLinkConnection }) {
   const status = flightStatus(flight, now);
   const mode = modeOf(flight);
   const isFlight = mode === "flight";
@@ -233,6 +242,13 @@ function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn }) {
   const to   = { ...airport(flight.to),   code: flight.to };
   const travelers = flight.travelers.map(familyById).filter(Boolean);
   const noReturn = status === "landed" && allFlights && !hasLoggedReturn(flight, allFlights);
+  // Two boarding passes logged separately that plausibly connect — offer to
+  // link them into one journey card (the retroactive counterpart to ticking
+  // "this is a connecting flight" during upload). Never offered once a
+  // flight's already part of a journey.
+  const connection = allFlights && onLinkConnection && !flight.journeyId
+    ? window.MGData.findConnectionCandidate(flight, allFlights) : null;
+  const connectionIsOnward = connection && window.MGData.isConnectionCandidate(flight, connection);
 
   // Lead text varies by status — Grandpa cares about the moment of takeoff
   // and the moment of landing more than the abstract route.
@@ -319,6 +335,13 @@ function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn }) {
           Return not logged — click to add
         </button>
       )}
+      {connection && (
+        <button className="card__no-return" onClick={(e) => { e.stopPropagation(); onLinkConnection(flight, connection); }}>
+          {connectionIsOnward
+            ? `Connects to ${airport(connection.to).city} — link as one trip?`
+            : `Connects from ${airport(connection.from).city} — link as one trip?`}
+        </button>
+      )}
       {isFlight && (
         <a
           className="fa-link card__fa"
@@ -329,6 +352,97 @@ function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn }) {
           Track on FlightAware <span className="fa-link__arrow">↗</span>
         </a>
       )}
+    </article>
+  );
+}
+
+// ── JourneyCard ─────────────────────────────────────────────────────────────
+// Same idea as FlightCard, but for a connecting-flight journey — two or more
+// linked legs presented as one card. The middle of the route line shows the
+// layover city (see MultiRouteRibbon); "layover" is a real status here, not
+// "landed" or "airborne", since neither of those would be true while they're
+// sitting in the connecting airport.
+function JourneyCard({ item, onOpen, now }) {
+  const legs = item.legs;
+  const status = journeyStatus(legs, now);
+  const first = legs[0], last = legs[legs.length - 1];
+  const mode = modeOf(first);
+  const isFlight = mode === "flight";
+  const from = { ...airport(first.from), code: first.from };
+  const to   = { ...airport(last.to),   code: last.to };
+  const travelers = first.travelers.map(familyById).filter(Boolean);
+
+  // Which leg — and which waypoint city — is relevant to the current status.
+  const layoverIdx = legs.findIndex((l, i) => i < legs.length - 1 && now >= l.arrive && now < legs[i + 1].depart);
+  const layoverCity = layoverIdx >= 0 ? airport(legs[layoverIdx].to).city : null;
+  const airborneLeg = legs.find((l) => flightStatus(l, now) === "airborne");
+
+  let lead;
+  if (status === "airborne") {
+    lead = (
+      <>
+        <span className="card__lead-name">{travelers[0]?.first}</span>
+        <span className="card__lead-verb">{isFlight ? " is in the air" : " is traveling"}</span>
+      </>
+    );
+  } else if (status === "layover") {
+    lead = (
+      <>
+        <span className="card__lead-name">{travelers[0]?.first}</span>
+        <span className="card__lead-verb"> is on a layover in </span>
+        <span className="card__lead-time">{layoverCity}</span>
+      </>
+    );
+  } else if (status === "landed") {
+    const diff = now - last.arrive;
+    lead = (
+      <>
+        <span className="card__lead-name">{travelers[0]?.first}</span>
+        <span className="card__lead-verb">{isFlight ? " landed " : " arrived "}</span>
+        <span className="card__lead-time">{fmtDuration(diff)} ago</span>
+      </>
+    );
+  } else {
+    lead = (
+      <>
+        <span className="card__lead-name">{travelers[0]?.first}</span>
+        <span className="card__lead-verb">{isFlight ? " flies on " : " leaves on "}</span>
+        <span className="card__lead-time">{fmtDateShort(first.depart)}</span>
+      </>
+    );
+  }
+
+  let pillLabel;
+  if (status === "scheduled") {
+    const daysOut = Math.floor((first.depart - now) / 86400000);
+    if (daysOut < 7) pillLabel = daysOut <= 0 ? "Today" : `${daysOut} day${daysOut === 1 ? "" : "s"} to go`;
+  }
+
+  const journeyFlight = { ...item.summary, id: item.id, legs, journeyId: item.id };
+
+  return (
+    <article className={`card card--${status === "layover" ? "boarding" : status}`} onClick={() => onOpen(journeyFlight)}>
+      <div className="card__top">
+        <AvatarStack ids={first.travelers} size={32} />
+        <StatusPill status={status} mode={mode} label={pillLabel} />
+      </div>
+      <div className="card__lead">{lead}</div>
+      <div className="card__cities">
+        <span className="card__city">
+          <span className="card__city-code">{isFlight ? first.from : ""}</span>
+          <span className="card__city-name">{from.city}</span>
+        </span>
+        {isFlight ? (
+          <MultiRouteRibbon legs={legs} status={status} now={now} />
+        ) : (
+          <span className="mode-connector" aria-hidden="true">{modeMeta(first).icon}</span>
+        )}
+        <span className="card__city">
+          <span className="card__city-code">{isFlight ? last.to : ""}</span>
+          <span className="card__city-name">{to.city}</span>
+        </span>
+      </div>
+      <div className="card__via">via {legs.slice(0, -1).map((l) => airport(l.to).city).join(", ")}</div>
     </article>
   );
 }
@@ -355,5 +469,5 @@ function EmptyRow({ text }) {
 Object.assign(window, {
   fmtTime, fmtDateShort, fmtDateLong, fmtDuration, pad2,
   useNow, Avatar, AvatarStack, StatusPill, Countdown,
-  FlightProgress, BoardingPassStrip, FlightCard, SectionHead, EmptyRow,
+  FlightProgress, BoardingPassStrip, FlightCard, JourneyCard, SectionHead, EmptyRow,
 });

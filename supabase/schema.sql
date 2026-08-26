@@ -171,3 +171,13 @@ do $$ begin
 exception when duplicate_object then null; -- safe to re-run
 end $$;
 alter table flights alter column flight_number drop not null;
+
+-- ── Connecting flights ────────────────────────────────────────────────────────
+-- Two (or more) legs that are really one journey (e.g. SFO→JFK, then JFK→LHR
+-- a couple hours later) share a journey_id so the frontend can present them
+-- as one card instead of two independent trips. Each leg stays its own real
+-- row with its own accurate depart/arrive/status — this is purely a grouping
+-- key, not a merge of the underlying data (merging would make "currently on
+-- the ground during the layover" indistinguishable from "airborne").
+alter table flights add column if not exists journey_id uuid;
+create index if not exists flights_journey_id_idx on flights (journey_id) where journey_id is not null;
