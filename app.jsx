@@ -79,9 +79,10 @@ function App() {
   const journeyItems = React.useMemo(() => boardItems.filter((i) => i.kind === "journey"), [boardItems]);
 
   // Bucket solo flights by status — unchanged from before journeys existed;
-  // this is what the hero sections key off of (they need real single-flight
-  // fields like cruisingAlt/aircraft that a journey doesn't have one clean
-  // value for, so journeys don't get hero treatment, just a rail card).
+  // this is what the hero sections key off of. Journeys don't get the big
+  // hero treatment (just a rail card, identical in style to a nonstop card —
+  // see JourneyCard) since the hero's live-progress framing assumes one
+  // continuous flight, not a multi-leg trip with a layover in the middle.
   const byStatus = React.useMemo(() => {
     const buckets = { airborne: [], boarding: [], scheduled: [], landed: [], past: [] };
     for (const f of soloFlights) {
@@ -518,7 +519,7 @@ function HeroAirborne({ flight, now, onOpen }) {
           </h1>
           <p className="hero__sub">
             {isFlight
-              ? <>{flight.airline}{flight.number} · {from.city} → {to.city} · cruising at {flight.cruisingAlt?.toLocaleString()} ft</>
+              ? <>{flight.airline}{flight.number} · {from.city} → {to.city}</>
               : <>{modeMeta(flight).icon} {modeMeta(flight).label} · {from.city} → {to.city}</>}
           </p>
           <FlightProgress flight={flight} now={now} />
@@ -531,12 +532,6 @@ function HeroAirborne({ flight, now, onOpen }) {
               <div className="hero__line-lbl">Arriving</div>
               <div className="hero__line-val">{fmtTime(flight.arrive)} {to.tz}</div>
             </div>
-            {isFlight && (
-              <div>
-                <div className="hero__line-lbl">Aircraft</div>
-                <div className="hero__line-val">{flight.aircraft}</div>
-              </div>
-            )}
           </div>
           <button className="hero__more" onClick={() => onOpen(flight)}>
             Open flight details →
@@ -762,11 +757,6 @@ function mapDbFlight(row) {
     arrive: new Date(row.arrive_at),
     journeyId: row.journey_id || null,
     travelers: (row.flight_travelers || []).map((t) => t.family_member_id),
-    aircraft: row.aircraft || undefined,
-    seat: row.seat || undefined,
-    gate: row.gate || undefined,
-    terminal: row.terminal || undefined,
-    confirmation: row.confirmation || undefined,
     note: row.note || undefined,
   };
 }

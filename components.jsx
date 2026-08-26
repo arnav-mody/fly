@@ -221,14 +221,73 @@ function BoardingPassStrip({ flight, dense = false }) {
         <div className="bp-strip__lbl">Duration</div>
         <div className="bp-strip__val">{dur}</div>
       </div>
-      {flight.seat && !dense && (
-        <div className="bp-strip__col">
-          <div className="bp-strip__lbl">Seat</div>
-          <div className="bp-strip__val">{flight.seat}</div>
-        </div>
-      )}
     </div>
   );
+}
+
+// ── card lead text ──────────────────────────────────────────────────────────
+// Shared by FlightCard and JourneyCard so a connecting-flight journey reads
+// exactly like a nonstop flight at every status — Grandpa cares about the
+// moment of takeoff and the moment of landing more than the abstract route,
+// and that shouldn't change just because there's a stop in the middle.
+// "layover" has no nonstop equivalent (it only ever applies to a journey
+// mid-connection) but follows the same name+verb+detail phrasing as the rest.
+function cardLead({ status, isFlight, name, now, depart, arrive, layoverCity }) {
+  if (status === "boarding") {
+    return (
+      <>
+        <span className="card__lead-name">{name}</span>
+        <span className="card__lead-verb"> takes off in </span>
+        <span className="card__lead-time">{fmtDuration(depart - now)}</span>
+      </>
+    );
+  }
+  if (status === "airborne") {
+    return (
+      <>
+        <span className="card__lead-name">{name}</span>
+        <span className="card__lead-verb">{isFlight ? " is in the air" : " is traveling"}</span>
+      </>
+    );
+  }
+  if (status === "layover") {
+    return (
+      <>
+        <span className="card__lead-name">{name}</span>
+        <span className="card__lead-verb"> is on a layover in </span>
+        <span className="card__lead-time">{layoverCity}</span>
+      </>
+    );
+  }
+  if (status === "landed") {
+    return (
+      <>
+        <span className="card__lead-name">{name}</span>
+        <span className="card__lead-verb">{isFlight ? " landed " : " arrived "}</span>
+        <span className="card__lead-time">{fmtDuration(now - arrive)} ago</span>
+      </>
+    );
+  }
+  // scheduled / upcoming — the actual date, not a relative countdown; the
+  // countdown lives in the status pill instead (see pillLabel below) so it
+  // doesn't have to fight the headline for space.
+  return (
+    <>
+      <span className="card__lead-name">{name}</span>
+      <span className="card__lead-verb">{isFlight ? " flies on " : " leaves on "}</span>
+      <span className="card__lead-time">{fmtDateShort(depart)}</span>
+    </>
+  );
+}
+
+// A close departure is worth calling out in the status pill up top ("3 days
+// to go") instead of the generic "Upcoming" — anything a week or further out
+// just isn't as time-sensitive. Shared so a journey's pill reads the same way.
+function scheduledPillLabel(status, depart, now) {
+  if (status !== "scheduled") return undefined;
+  const days = Math.floor((depart - now) / 86400000);
+  if (days >= 7) return undefined;
+  return days <= 0 ? "Today" : `${days} day${days === 1 ? "" : "s"} to go`;
 }
 
 // ── FlightCard ──────────────────────────────────────────────────────────────
@@ -250,55 +309,7 @@ function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn, onLi
     ? window.MGData.findConnectionCandidate(flight, allFlights) : null;
   const connectionIsOnward = connection && window.MGData.isConnectionCandidate(flight, connection);
 
-  // Lead text varies by status — Grandpa cares about the moment of takeoff
-  // and the moment of landing more than the abstract route.
-  let lead;
-  if (status === "boarding") {
-    const diff = flight.depart - now;
-    lead = (
-      <>
-        <span className="card__lead-name">{travelers[0]?.first}</span>
-        <span className="card__lead-verb"> takes off in </span>
-        <span className="card__lead-time">{fmtDuration(diff)}</span>
-      </>
-    );
-  } else if (status === "airborne") {
-    lead = (
-      <>
-        <span className="card__lead-name">{travelers[0]?.first}</span>
-        <span className="card__lead-verb">{isFlight ? " is in the air" : " is traveling"}</span>
-      </>
-    );
-  } else if (status === "landed") {
-    const diff = now - flight.arrive;
-    lead = (
-      <>
-        <span className="card__lead-name">{travelers[0]?.first}</span>
-        <span className="card__lead-verb">{isFlight ? " landed " : " arrived "}</span>
-        <span className="card__lead-time">{fmtDuration(diff)} ago</span>
-      </>
-    );
-  } else {
-    // scheduled / upcoming — the actual date, not a relative countdown;
-    // the countdown lives in the status pill instead (see daysToGo below)
-    // so it doesn't have to fight the headline for space.
-    lead = (
-      <>
-        <span className="card__lead-name">{travelers[0]?.first}</span>
-        <span className="card__lead-verb">{isFlight ? " flies on " : " leaves on "}</span>
-        <span className="card__lead-time">{fmtDateShort(flight.depart)}</span>
-      </>
-    );
-  }
-
-  // A close departure is worth calling out in the status pill up top
-  // ("3 days to go") instead of the generic "Upcoming" — anything a week
-  // or further out just isn't as time-sensitive.
-  let pillLabel;
-  if (status === "scheduled") {
-    const days = Math.floor((flight.depart - now) / 86400000);
-    if (days < 7) pillLabel = days <= 0 ? "Today" : `${days} day${days === 1 ? "" : "s"} to go`;
-  }
+  const pillLabel = scheduledPillLabel(status, flight.depart, now);
 
   return (
     <article className={`card card--${status}`} onClick={() => onOpen(flight)} data-comment-anchor={`card-${flight.id}`}>
@@ -306,7 +317,9 @@ function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn, onLi
         <AvatarStack ids={flight.travelers} size={32} />
         <StatusPill status={status} mode={mode} label={pillLabel} />
       </div>
-      <div className="card__lead">{lead}</div>
+      <div className="card__lead">
+        {cardLead({ status, isFlight, name: travelers[0]?.first, now, depart: flight.depart, arrive: flight.arrive })}
+      </div>
       <div className="card__cities">
         <span className="card__city">
           <span className="card__city-code">{isFlight ? flight.from : ""}</span>
@@ -357,11 +370,13 @@ function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn, onLi
 }
 
 // ── JourneyCard ─────────────────────────────────────────────────────────────
-// Same idea as FlightCard, but for a connecting-flight journey — two or more
-// linked legs presented as one card. The middle of the route line shows the
-// layover city (see MultiRouteRibbon); "layover" is a real status here, not
-// "landed" or "airborne", since neither of those would be true while they're
-// sitting in the connecting airport.
+// A connecting-flight journey — two or more linked legs — reads exactly like
+// a nonstop FlightCard (see cardLead above): same headline phrasing, same
+// boarding-pass strip, same note/FA-link placement. The one intentional
+// difference is the stopover: the route line shows a waypoint dot positioned
+// by how long the layover actually is, captioned with the city name, and
+// "layover" is a real status distinct from "landed"/"airborne" since neither
+// of those is true while they're sitting in the connecting airport.
 function JourneyCard({ item, onOpen, now }) {
   const legs = item.legs;
   const status = journeyStatus(legs, now);
@@ -372,53 +387,14 @@ function JourneyCard({ item, onOpen, now }) {
   const to   = { ...airport(last.to),   code: last.to };
   const travelers = first.travelers.map(familyById).filter(Boolean);
 
-  // Which leg — and which waypoint city — is relevant to the current status.
   const layoverIdx = legs.findIndex((l, i) => i < legs.length - 1 && now >= l.arrive && now < legs[i + 1].depart);
   const layoverCity = layoverIdx >= 0 ? airport(legs[layoverIdx].to).city : null;
   const airborneLeg = legs.find((l) => flightStatus(l, now) === "airborne");
+  const faLeg = airborneLeg || first;
 
-  let lead;
-  if (status === "airborne") {
-    lead = (
-      <>
-        <span className="card__lead-name">{travelers[0]?.first}</span>
-        <span className="card__lead-verb">{isFlight ? " is in the air" : " is traveling"}</span>
-      </>
-    );
-  } else if (status === "layover") {
-    lead = (
-      <>
-        <span className="card__lead-name">{travelers[0]?.first}</span>
-        <span className="card__lead-verb"> is on a layover in </span>
-        <span className="card__lead-time">{layoverCity}</span>
-      </>
-    );
-  } else if (status === "landed") {
-    const diff = now - last.arrive;
-    lead = (
-      <>
-        <span className="card__lead-name">{travelers[0]?.first}</span>
-        <span className="card__lead-verb">{isFlight ? " landed " : " arrived "}</span>
-        <span className="card__lead-time">{fmtDuration(diff)} ago</span>
-      </>
-    );
-  } else {
-    lead = (
-      <>
-        <span className="card__lead-name">{travelers[0]?.first}</span>
-        <span className="card__lead-verb">{isFlight ? " flies on " : " leaves on "}</span>
-        <span className="card__lead-time">{fmtDateShort(first.depart)}</span>
-      </>
-    );
-  }
-
-  let pillLabel;
-  if (status === "scheduled") {
-    const daysOut = Math.floor((first.depart - now) / 86400000);
-    if (daysOut < 7) pillLabel = daysOut <= 0 ? "Today" : `${daysOut} day${daysOut === 1 ? "" : "s"} to go`;
-  }
-
+  const pillLabel = scheduledPillLabel(status, first.depart, now);
   const journeyFlight = { ...item.summary, id: item.id, legs, journeyId: item.id };
+  const stripFlight = { mode, airline: item.summary.airline, number: item.summary.number, from: first.from, to: last.to, depart: first.depart, arrive: last.arrive };
 
   return (
     <article className={`card card--${status === "layover" ? "boarding" : status}`} onClick={() => onOpen(journeyFlight)}>
@@ -426,7 +402,9 @@ function JourneyCard({ item, onOpen, now }) {
         <AvatarStack ids={first.travelers} size={32} />
         <StatusPill status={status} mode={mode} label={pillLabel} />
       </div>
-      <div className="card__lead">{lead}</div>
+      <div className="card__lead">
+        {cardLead({ status, isFlight, name: travelers[0]?.first, now, depart: first.depart, arrive: last.arrive, layoverCity })}
+      </div>
       <div className="card__cities">
         <span className="card__city">
           <span className="card__city-code">{isFlight ? first.from : ""}</span>
@@ -442,7 +420,21 @@ function JourneyCard({ item, onOpen, now }) {
           <span className="card__city-name">{to.city}</span>
         </span>
       </div>
-      <div className="card__via">via {legs.slice(0, -1).map((l) => airport(l.to).city).join(", ")}</div>
+      <div className="card__via">Stopover in {legs.slice(0, -1).map((l) => airport(l.to).city).join(", ")}</div>
+      <BoardingPassStrip flight={stripFlight} dense />
+      {item.summary.note && travelers.length === 1 && (
+        <div className="card__note">"{item.summary.note.length > 80 ? item.summary.note.slice(0, 80) + "…" : item.summary.note}"</div>
+      )}
+      {isFlight && (
+        <a
+          className="fa-link card__fa"
+          href={flightAwareUrl(faLeg)}
+          target="_blank" rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+        >
+          Track on FlightAware <span className="fa-link__arrow">↗</span>
+        </a>
+      )}
     </article>
   );
 }

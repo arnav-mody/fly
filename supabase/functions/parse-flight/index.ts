@@ -61,10 +61,6 @@ function buildFlightTool(today: string) {
           type: ["string", "null"],
           description: "Local arrival time as 24-hour HH:MM, ONLY if explicitly printed — never calculate or guess this.",
         },
-        seat: { type: ["string", "null"] },
-        confirmation: { type: ["string", "null"], description: "Booking reference / confirmation / PNR code." },
-        gate: { type: ["string", "null"] },
-        terminal: { type: ["string", "null"] },
         low_confidence_fields: {
           type: "array",
           items: { type: "string" },

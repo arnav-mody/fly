@@ -41,15 +41,9 @@ create table if not exists flights (
   to_airport       text references airports(code),
   depart_at        timestamptz not null,
   arrive_at        timestamptz not null,
-  aircraft         text,
-  seat             text,
-  gate             text,
-  terminal         text,
-  confirmation     text,
   note             text,
   source           text not null default 'manual',  -- 'manual' | 'upload' | 'paste'
   source_image_path text,          -- Storage path in the boarding-passes bucket, if applicable
-  submitted_by     text references family_members(id),
   created_at       timestamptz not null default now()
 );
 
@@ -181,3 +175,17 @@ alter table flights alter column flight_number drop not null;
 -- the ground during the layover" indistinguishable from "airborne").
 alter table flights add column if not exists journey_id uuid;
 create index if not exists flights_journey_id_idx on flights (journey_id) where journey_id is not null;
+
+-- ── Drop unused columns ───────────────────────────────────────────────────────
+-- aircraft/seat/gate/terminal/confirmation/submitted_by were collected by the
+-- AI parser and/or defined in this schema early on, but nothing ever actually
+-- wrote or displayed them (save-flight never persisted them; cruisingAlt/speed
+-- shown alongside "aircraft" in the UI weren't even real columns — leftovers
+-- from the original fictional prototype data). Dropping rather than leaving
+-- them as always-null cruft.
+alter table flights drop column if exists aircraft;
+alter table flights drop column if exists seat;
+alter table flights drop column if exists gate;
+alter table flights drop column if exists terminal;
+alter table flights drop column if exists confirmation;
+alter table flights drop column if exists submitted_by;

@@ -202,18 +202,7 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
 
         {/* Status detail */}
         <div className="fd__statusdetail">
-          {status === "airborne" && (
-            <>
-              <FlightProgress flight={airborneLeg} now={now} />
-              {isFlight && !isJourney && (
-                <div className="fd__stats">
-                  <Stat label="Altitude"  value={`${flight.cruisingAlt?.toLocaleString() ?? "—"} ft`} />
-                  <Stat label="Ground speed" value={`${flight.speed ?? "—"} kts`} />
-                  <Stat label="Aircraft"  value={flight.aircraft ?? "—"} />
-                </div>
-              )}
-            </>
-          )}
+          {status === "airborne" && <FlightProgress flight={airborneLeg} now={now} />}
           {status === "layover" && layoverIdx >= 0 && (
             <Countdown target={legs[layoverIdx + 1].depart} label={`On a layover in ${_airport(legs[layoverIdx].to).city} — next leg in`} dramatic now={now} />
           )}
@@ -320,14 +309,6 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
   );
 }
 
-function Stat({ label, value }) {
-  return (
-    <div className="stat">
-      <div className="stat__lbl">{label}</div>
-      <div className="stat__val">{value}</div>
-    </div>
-  );
-}
 // ── AddTrip modal ───────────────────────────────────────────────────────────
 // One screen: the upload button, the paste-toggle, and the review/edit form
 // are all visible together from the moment the modal opens — no click-through

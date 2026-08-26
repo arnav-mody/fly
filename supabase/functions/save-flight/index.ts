@@ -64,7 +64,7 @@ Deno.serve(async (req) => {
 
     const {
       flightId, mode: rawMode, airline_code, flight_number, from_airport, to_airport,
-      depart_at, arrive_at, note, source, imagePath, travelerIds, submittedBy, journeyId,
+      depart_at, arrive_at, note, source, imagePath, travelerIds, journeyId,
     } = body;
     const isEdit = !!flightId && typeof flightId === "string";
     const mode = MODES.includes(rawMode) ? rawMode : "flight";
@@ -116,7 +116,6 @@ Deno.serve(async (req) => {
       note: note || null,
       source: source || "upload",
       source_image_path: imagePath || null,
-      submitted_by: submittedBy || null,
       journey_id: journeyId || null,
     };
 

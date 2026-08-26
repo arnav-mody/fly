@@ -404,6 +404,11 @@ function buildJourneys(flights) {
           from: first.from, to: last.to,
           depart: first.depart, arrive: last.arrive,
           travelers: first.travelers,
+          // Shown in the card's boarding-pass strip alongside the overall
+          // depart/arrive — the first leg's flight, same as how a nonstop
+          // card shows its one flight number.
+          airline: first.airline, number: first.number,
+          note: first.note,
         },
       });
     }
