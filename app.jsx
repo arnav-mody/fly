@@ -48,6 +48,7 @@ function App() {
   const [view, setView] = React.useState("board");      // board | calendar | travelers
   const [openFlight, setOpenFlight] = React.useState(null);
   const [addOpen, setAddOpen] = React.useState(false);
+  const [bulkOpen, setBulkOpen] = React.useState(false);
   const [editingFlight, setEditingFlight] = React.useState(null);
   const [returnPrefill, setReturnPrefill] = React.useState(null);
   const [filterIds, setFilterIds] = React.useState([]);
@@ -183,6 +184,7 @@ function App() {
         now={now}
         view={view} setView={setView}
         onAdd={() => setAddOpen(true)}
+        onBulkAdd={() => setBulkOpen(true)}
         airborneCount={byStatus.airborne.length}
         soonCount={byStatus.boarding.length}
         filterIds={filterIds}
@@ -210,6 +212,7 @@ function App() {
             heroOn
             onOpen={setOpenFlight}
             onAdd={() => setAddOpen(true)}
+            onBulkAdd={() => setBulkOpen(true)}
             onAddReturn={(flight) => setReturnPrefill({ from: flight.to, to: flight.from, travelers: flight.travelers, mode: flight.mode })}
             onLinkConnection={handleLinkConnection}
             onDismissReturn={handleDismissReturn}
@@ -246,6 +249,11 @@ function App() {
         onSubmit={handleSubmit}
         editing={editingFlight}
         prefill={returnPrefill}
+      />
+      <BulkUploadModal
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onSubmit={refreshFlights}
       />
 
       <TweaksPanel title="Tweaks">
@@ -284,7 +292,7 @@ function App() {
 }
 
 // ── TopBar ──────────────────────────────────────────────────────────────────
-function TopBar({ now, view, setView, onAdd, airborneCount, soonCount, filterIds, setFilterIds }) {
+function TopBar({ now, view, setView, onAdd, onBulkAdd, airborneCount, soonCount, filterIds, setFilterIds }) {
   return (
     <header className="topbar" data-screen-label="00 Top Bar">
       <div className="topbar__brand">
@@ -301,6 +309,12 @@ function TopBar({ now, view, setView, onAdd, airborneCount, soonCount, filterIds
       </nav>
       <div className="topbar__right">
         <PeopleFilter ids={filterIds} onChange={setFilterIds} />
+        <button className="topbar__bulk" onClick={onBulkAdd} title="Upload multiple trips" aria-label="Upload multiple trips">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="4" y="7" width="13" height="13" rx="2" />
+            <path d="M8 7V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2" />
+          </svg>
+        </button>
         <button className="topbar__add" onClick={onAdd} title="Add a trip" aria-label="Add a trip">＋</button>
       </div>
     </header>
@@ -368,7 +382,7 @@ function PeopleFilter({ ids, onChange }) {
 }
 
 // ── Board ───────────────────────────────────────────────────────────────────
-function Board({ buckets, journeyBuckets, roundTripItems, now, heroOn, onOpen, onAdd, allFlights, onAddReturn, onLinkConnection, onDismissReturn }) {
+function Board({ buckets, journeyBuckets, roundTripItems, now, heroOn, onOpen, onAdd, onBulkAdd, allFlights, onAddReturn, onLinkConnection, onDismissReturn }) {
   const rt = roundTripItems || [];
   const jb = journeyBuckets || { airborne: [], boarding: [], scheduled: [], landed: [] };
   const airborne = buckets.airborne;
@@ -491,7 +505,10 @@ function Board({ buckets, journeyBuckets, roundTripItems, now, heroOn, onOpen, o
             <h3>Booked a flight?</h3>
             <p>Drop the details — the family will be tracking before you even get to the airport.</p>
           </div>
-          <button className="cta__btn" onClick={onAdd}>＋ Add a trip</button>
+          <div className="cta__row">
+            <button className="cta__btn" onClick={onAdd}>＋ Add a trip</button>
+            <button className="cta__btn cta__btn--ghost" onClick={onBulkAdd}>Upload several at once</button>
+          </div>
         </div>
       </section>
     </div>

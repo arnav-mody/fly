@@ -167,6 +167,13 @@
       transition: transform .12s ease, box-shadow .12s ease;
     }
     .topbar__add:hover { transform: translateY(-1px); box-shadow: var(--shadow-2); }
+    .topbar__bulk {
+      appearance: none; border: 0.5px solid var(--paper-line); width: 42px; height: 42px; flex: none; padding: 0;
+      border-radius: 999px; background: var(--paper-soft); color: var(--ink-soft);
+      display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+      transition: color .15s, border-color .15s;
+    }
+    .topbar__bulk:hover { color: var(--ink); border-color: var(--ink-faint); }
 
     /* ── People filter (collapsed multi-select) ─────────────────────────── */
     .pfil { position: relative; }
@@ -587,6 +594,11 @@
       background: var(--accent); color: white; font-weight: 600; font-size: 0.95rem;
     }
     .cta__btn:hover { background: color-mix(in oklab, var(--accent) 85%, white); }
+    .cta__btn--ghost {
+      background: transparent; color: var(--paper); border: 0.5px solid color-mix(in oklab, var(--paper) 40%, transparent);
+    }
+    .cta__btn--ghost:hover { background: color-mix(in oklab, var(--paper) 12%, transparent); }
+    .cta__row { display: flex; gap: 10px; flex-wrap: wrap; }
 
     /* ── Modals ─────────────────────────────────────────────────────────── */
     .modal-backdrop {
@@ -871,6 +883,61 @@
       margin-top: -6px;
     }
 
+    /* ── Bulk upload modal ──────────────────────────────────────────────── */
+    .bu { padding: 26px 32px; }
+    .bu__body { display: flex; flex-direction: column; gap: 14px; }
+    .bu__intro { color: var(--ink-soft); font-size: 0.92rem; margin: 0; }
+    .bu__progress {
+      display: flex; align-items: center; gap: 10px;
+      font-family: var(--font-mono); font-size: 0.85rem; color: var(--ink-soft);
+    }
+    .bu__thumbs { display: flex; flex-wrap: wrap; gap: 10px; }
+    .bu__thumb {
+      position: relative; width: 64px; height: 64px; border-radius: 10px; overflow: hidden;
+      border: 1.5px solid var(--paper-line); background: var(--paper-soft);
+    }
+    .bu__thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .bu__thumb-badge {
+      position: absolute; bottom: 3px; right: 3px; width: 18px; height: 18px; border-radius: 50%;
+      background: var(--paper); color: var(--ink); font-size: 0.68rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-1);
+    }
+    .bu__thumb--ready .bu__thumb-badge, .bu__thumb--merged .bu__thumb-badge { background: var(--sage); color: white; }
+    .bu__thumb--error .bu__thumb-badge { background: var(--warn); color: var(--ink); }
+    .bu__thumb--error { border-color: var(--warn); }
+
+    .bu__stage-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .bu__nav-btn {
+      appearance: none; border: 0.5px solid var(--paper-line); background: var(--paper-soft);
+      width: 36px; height: 36px; border-radius: 50%; font-size: 1.1rem; color: var(--ink);
+      display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+    }
+    .bu__nav-btn:hover:not(:disabled) { background: var(--paper-deeper); }
+    .bu__nav-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .bu__stage-count { font-family: var(--font-mono); font-size: 0.8rem; color: var(--ink-soft); text-align: center; }
+    .bu__stage-summary { color: var(--ink-faint); }
+    .bu__dots { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+    .bu__dot {
+      appearance: none; border: 0; width: 10px; height: 10px; border-radius: 50%; padding: 0;
+      background: var(--paper-line); cursor: pointer;
+    }
+    .bu__dot--accepted { background: var(--sage); }
+    .bu__dot--discarded { background: var(--ink-faint); }
+    .bu__dot.on { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    .bu__card { display: flex; flex-direction: column; gap: 12px; }
+    .bu__card-thumbs { display: flex; gap: 8px; flex-wrap: wrap; }
+    .bu__card-thumb {
+      width: 84px; height: 84px; object-fit: cover; border-radius: 10px;
+      border: 0.5px solid var(--paper-line);
+    }
+    .bu__actions { justify-content: space-between; }
+    .bu__empty { color: var(--ink-soft); font-size: 0.92rem; padding: 12px 0; }
+
+    .bu__footer { padding-top: 14px; margin-top: 4px; border-top: 0.5px solid var(--paper-line); display: flex; justify-content: flex-end; }
+    .bu__done { padding: 10px 18px; }
+    .bu__close-confirm { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 0.88rem; color: var(--ink-soft); }
+
     /* ── Travelers view ─────────────────────────────────────────────────── */
     .travelers { display: flex; flex-direction: column; gap: 28px; }
     .travelers__grid {
@@ -1133,6 +1200,7 @@
   <script type="text/babel" src="map.jsx"></script>
   <script type="text/babel" src="components.jsx"></script>
   <script type="text/babel" src="modals.jsx"></script>
+  <script type="text/babel" src="bulk-upload.jsx"></script>
   <script type="text/babel" src="calendar.jsx"></script>
   <!-- app last -->
   <script type="text/babel" src="app.jsx" data-presets="env,react"></script>
