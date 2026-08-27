@@ -43,7 +43,6 @@ create table if not exists flights (
   arrive_at        timestamptz not null,
   note             text,
   source           text not null default 'manual',  -- 'manual' | 'upload' | 'paste'
-  source_image_path text,          -- Storage path in the boarding-passes bucket, if applicable
   created_at       timestamptz not null default now()
 );
 
@@ -198,3 +197,12 @@ alter table flights drop column if exists submitted_by;
 -- shared decision recorded once, not an inferred guess or a per-device
 -- localStorage flag only one person would see.
 alter table flights add column if not exists return_dismissed boolean not null default false;
+
+-- ── Never retain the uploaded boarding pass ──────────────────────────────────
+-- source_image_path pointed at a copy of the boarding pass kept in Storage
+-- so a failed parse could be retried without re-uploading. A boarding pass
+-- can carry a booking reference or other identifying detail, and that's not
+-- worth retaining just for a retry convenience — parse-flight no longer
+-- writes to Storage at all (the image only ever exists in memory for the
+-- one request that reads it), and this column has nothing left to point to.
+alter table flights drop column if exists source_image_path;

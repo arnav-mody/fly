@@ -2,13 +2,14 @@
 //
 // Accepts EITHER an uploaded boarding-pass/e-ticket image OR pasted/typed
 // free-text flight details, and asks Claude (forced tool-use) to extract
-// structured flight fields. An image also gets stored in the
-// `boarding-passes` bucket first; plain text has nothing to store. Returns
+// structured flight fields. The image is only ever held in memory for this
+// one request — it's sent straight to Claude's vision API and never written
+// to Storage, so a boarding pass (which can carry a booking reference or
+// other identifying detail) never persists anywhere past this request. If
+// parsing fails, re-uploading is the retry path, not a saved copy. Returns
 // the parsed fields for a human to review/edit in the UI — this function
 // never writes to the `flights` table itself; that only happens after the
 // human confirms, via save-flight.
-
-import { createClient } from "npm:@supabase/supabase-js@2";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -17,9 +18,6 @@ const CORS_HEADERS = {
 };
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_KEY =
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("SUPABASE_SECRET_KEY")!;
 
 // Computed fresh per request from the server's own clock — Claude has no
 // reliable notion of "today" on its own (its training cutoff is not today's
@@ -95,22 +93,6 @@ Deno.serve(async (req) => {
       return json({ ok: false, error: "Unsupported image type — use JPEG, PNG, WebP, or GIF" }, 400);
     }
 
-    const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
-
-    // Store the raw image first, before calling the AI — if parsing fails
-    // downstream, the upload itself isn't lost and can be retried or fixed
-    // by hand without asking the family member to re-upload. Pasted text has
-    // nothing to store, so this whole step is skipped for that path.
-    let path: string | null = null;
-    if (hasImage) {
-      const ext = mediaType.split("/")[1];
-      path = `${crypto.randomUUID()}.${ext}`;
-      const { error: uploadError } = await supabase.storage
-        .from("boarding-passes")
-        .upload(path, base64ToBytes(image), { contentType: mediaType });
-      if (uploadError) return json({ ok: false, error: `Upload failed: ${uploadError.message}` }, 500);
-    }
-
     const today = todayISO();
     const content: unknown[] = [];
     if (hasImage) content.push({ type: "image", source: { type: "base64", media_type: mediaType, data: image } });
@@ -146,26 +128,18 @@ Deno.serve(async (req) => {
 
     if (!aiRes.ok) {
       const detail = await aiRes.text();
-      return json({ ok: false, error: `AI parsing failed (${aiRes.status})`, detail, imagePath: path }, 502);
+      return json({ ok: false, error: `AI parsing failed (${aiRes.status})`, detail }, 502);
     }
 
     const aiData = await aiRes.json();
     const toolUse = (aiData.content ?? []).find((b: { type: string }) => b.type === "tool_use");
-    if (!toolUse) return json({ ok: false, error: "AI didn't return structured data", imagePath: path }, 502);
+    if (!toolUse) return json({ ok: false, error: "AI didn't return structured data" }, 502);
 
-    return json({ ok: true, parsed: toolUse.input, imagePath: path });
+    return json({ ok: true, parsed: toolUse.input });
   } catch (err) {
     return json({ ok: false, error: String((err as Error)?.message ?? err) }, 500);
   }
 });
-
-function base64ToBytes(b64: string): Uint8Array {
-  const clean = b64.includes(",") ? b64.split(",")[1] : b64; // strip a data: URL prefix if present
-  const bin = atob(clean);
-  const arr = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  return arr;
-}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {

@@ -409,7 +409,10 @@ function useLegForm() {
   const [parsed, setParsed] = React.useState(null);
   const [error, setError] = React.useState(null);
   const [uploading, setUploading] = React.useState(false);
-  const [imagePath, setImagePath] = React.useState(null);
+  // Just tracks *whether* this leg came from a photo upload (vs. paste/typed)
+  // for the "source" field — the image itself is never kept anywhere past
+  // the parse-flight request, so there's no path to remember.
+  const [uploaded, setUploaded] = React.useState(false);
 
   const applyParsed = (p) => {
     setForm((l) => ({
@@ -466,7 +469,7 @@ function useLegForm() {
             setError((data && data.error) || await readFunctionError(err) || "Couldn't read that image — mind typing the details in below?");
             return;
           }
-          setImagePath(data.imagePath);
+          setUploaded(true);
           setParsed(data.parsed);
           applyParsed(data.parsed);
         }).catch((err) => {
@@ -483,10 +486,10 @@ function useLegForm() {
 
   const reset = () => {
     setForm(EMPTY_LEG_FORM); setPasteOpen(false); setPasteText(""); setParsing(false);
-    setParsed(null); setError(null); setUploading(false); setImagePath(null);
+    setParsed(null); setError(null); setUploading(false); setUploaded(false);
   };
 
-  return { form, setForm, pasteOpen, setPasteOpen, pasteText, setPasteText, parsing, parsed, error, uploading, imagePath, parseText, handleFileSelect, reset };
+  return { form, setForm, pasteOpen, setPasteOpen, pasteText, setPasteText, parsing, parsed, error, uploading, uploaded, parseText, handleFileSelect, reset };
 }
 
 // The upload/paste/manual-entry block for one leg — identical UI whether
@@ -612,7 +615,10 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
   const [uploading, setUploading] = React.useState(false);
   const [uploadParsed, setUploadParsed] = React.useState(null);
   const [uploadError, setUploadError] = React.useState(null);
-  const [imagePath, setImagePath] = React.useState(null);
+  // Just tracks *whether* this came from a photo upload (vs. paste/typed)
+  // for the "source" field — the image itself is never kept anywhere past
+  // the parse-flight request, so there's no path to remember.
+  const [uploaded, setUploaded] = React.useState(false);
 
   const [saving, setSaving] = React.useState(false);
   const [submitError, setSubmitError] = React.useState(null);
@@ -651,7 +657,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
       setTimeout(() => {
         setMode("flight"); setForm(EMPTY_TRIP_FORM); setRoundTrip(false);
         setPasteOpen(false); setPasteText(""); setParsingText(false); setTextParsed(null); setTextError(null);
-        setUploading(false); setUploadParsed(null); setUploadError(null); setImagePath(null);
+        setUploading(false); setUploadParsed(null); setUploadError(null); setUploaded(false);
         setAddingConnection(false); leg2.reset(); returnLeg.reset();
         setSaving(false); setSubmitError(null);
       }, 200);
@@ -737,8 +743,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
         depart_at: departAt.toISOString(),
         arrive_at: arriveAt.toISOString(),
         note: form.note || null,
-        source: editing ? "edit" : (imagePath ? "upload" : (textParsed ? "paste" : "manual")),
-        imagePath: imagePath || null,
+        source: editing ? "edit" : (uploaded ? "upload" : (textParsed ? "paste" : "manual")),
         travelerIds: form.travelers,
         // Preserve an existing journey link when editing a single leg of one —
         // otherwise every edit would silently unlink it (nothing else in this
@@ -774,8 +779,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
                 depart_at: leg2DepartAt.toISOString(),
                 arrive_at: leg2ArriveAt.toISOString(),
                 note: form.note || null,
-                source: leg2.imagePath ? "upload" : (leg2.parsed ? "paste" : "manual"),
-                imagePath: leg2.imagePath || null,
+                source: leg2.uploaded ? "upload" : (leg2.parsed ? "paste" : "manual"),
                 travelerIds: form.travelers,
                 journeyId,
               },
@@ -814,8 +818,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
               depart_at: retDepartAt.toISOString(),
               arrive_at: retArriveAt.toISOString(),
               note: form.note || null,
-              source: returnLeg.imagePath ? "upload" : (returnLeg.parsed ? "paste" : "manual"),
-              imagePath: returnLeg.imagePath || null,
+              source: returnLeg.uploaded ? "upload" : (returnLeg.parsed ? "paste" : "manual"),
               travelerIds: form.travelers,
             },
           }), 20000, "Saving return leg").then(async ({ data: retData, error: retError }) => {
@@ -892,7 +895,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
             setUploadError(message);
             return;
           }
-          setImagePath(data.imagePath);
+          setUploaded(true);
           setUploadParsed(data.parsed);
           applyParsed(data.parsed);
         }).catch((err) => {
