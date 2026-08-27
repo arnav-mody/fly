@@ -1,0 +1,56 @@
+name: Weekly data backup
+
+# Exports every table to CSV and pushes it into a *separate, private* repo —
+# this repo (fly) is public (required for free GitHub Pages), so the backup
+# can never land here or in this repo's Actions artifacts; both are visible
+# to anyone on a public repo. Needs a one-time setup: a private
+# "fly-backups" repo, and two secrets on *this* repo (Settings → Secrets
+# and variables → Actions) — SUPABASE_SERVICE_ROLE_KEY (already in this
+# project's .env) and BACKUP_REPO_TOKEN (a fine-grained PAT scoped to just
+# fly-backups, Contents: read and write).
+#
+# GitHub disables scheduled workflows automatically after 60 days with no
+# repository activity — if the family goes quiet on the app for two months,
+# the schedule will need a manual re-enable from the Actions tab. Runs any
+# time from the Actions tab too (workflow_dispatch), for testing or an
+# on-demand backup.
+
+on:
+  schedule:
+    - cron: "0 13 * * 0"  # every Sunday, 13:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Export tables to CSV
+        env:
+          SUPABASE_URL: https://fsdiuabmuicexdelkxtc.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -e
+          mkdir -p backup
+          for table in flights flight_travelers family_members airlines airports; do
+            curl -sf "$SUPABASE_URL/rest/v1/$table?select=*" \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Accept: text/csv" \
+              -o "backup/$table.csv"
+          done
+
+      - name: Push CSVs to the private backup repo
+        env:
+          BACKUP_REPO_TOKEN: ${{ secrets.BACKUP_REPO_TOKEN }}
+        run: |
+          set -e
+          DATE=$(date -u +%Y-%m-%d)
+          git clone "https://x-access-token:${BACKUP_REPO_TOKEN}@github.com/arnav-mody/fly-backups.git" dest
+          mkdir -p "dest/$DATE"
+          cp backup/*.csv "dest/$DATE/"
+          cd dest
+          git config user.email "actions@github.com"
+          git config user.name "Family Travel Backup"
+          git add .
+          git commit -m "Backup $DATE" || echo "Nothing changed since last backup"
+          git push
