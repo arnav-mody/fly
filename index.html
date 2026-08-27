@@ -398,13 +398,19 @@
       letter-spacing: 0.02em;
     }
     .card__return {
-      appearance: none; border: 0; width: 100%; text-align: left; cursor: pointer;
+      appearance: none; width: 100%; text-align: left; cursor: pointer;
       display: flex; flex-direction: column; gap: 4px;
-      background: var(--paper-soft); border: 0.5px solid var(--paper-line);
-      border-radius: 12px; padding: 10px 14px; margin-top: 4px;
-      transition: border-color .15s, background .15s;
+      background: color-mix(in oklab, var(--accent) 10%, var(--paper));
+      border: 1px solid color-mix(in oklab, var(--accent) 40%, var(--paper-line));
+      border-left: 3px solid var(--accent);
+      border-radius: 10px; padding: 10px 14px; margin-top: 6px;
+      box-shadow: var(--shadow-1);
+      transition: background .15s, box-shadow .15s;
     }
-    .card__return:hover { border-color: var(--ink-faint); background: var(--paper-deeper); }
+    .card__return:hover {
+      background: color-mix(in oklab, var(--accent) 18%, var(--paper));
+      box-shadow: var(--shadow-2);
+    }
     .card__return-label {
       font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.1em;
       text-transform: uppercase; color: var(--accent); font-weight: 600;

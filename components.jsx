@@ -534,7 +534,6 @@ function RoundTripCard({ item, onOpen, now }) {
   const travelers = outbound.travelers.map(familyById).filter(Boolean);
   const pillLabel = scheduledPillLabel(status, flightRealDepart(outbound), now);
   const faUrl = isFlight && flightRealDepart(outbound) - now <= hours(48) ? flightAwareUrl(outbound) : null;
-  const returnAirport = airport(returnLeg.to);
 
   return (
     <article className={`card card--${status}`} onClick={() => onOpen(outbound)}>
@@ -575,7 +574,7 @@ function RoundTripCard({ item, onOpen, now }) {
         <span className="card__return-label">Returns {fmtDateShort(returnLeg.depart)}</span>
         <span className="card__return-row">
           {isFlight && <span className="card__return-flight"><span className="bp-airline" style={{ ["--ac"]: airline(returnLeg.airline).color }}>{returnLeg.airline}</span>{returnLeg.number}</span>}
-          <span className="card__return-route">{returnAirport.city} <span aria-hidden="true">→</span> {from.city}</span>
+          <span className="card__return-route">{to.city} <span aria-hidden="true">→</span> {from.city}</span>
           <span className="card__return-time">{fmtTime(returnLeg.depart)} {to.tz}</span>
         </span>
       </button>
