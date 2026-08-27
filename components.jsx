@@ -302,15 +302,21 @@ function cardLead({ status, isFlight, travelers, now, depart, arrive, departReal
   );
 }
 
-// A close departure is worth calling out in the status pill up top ("3 days
-// to go") instead of the generic "Upcoming" — anything a week or further out
-// just isn't as time-sensitive. Shared so a journey's pill reads the same way.
-// `depart` should be the real instant (see cardLead above).
+// Always shows how long until departure ("12 days to go"), with more
+// precision as it gets closer ("1 day 6 hrs to go" inside 48 hours) — the
+// pill otherwise just says the generic "Upcoming", which isn't nearly as
+// useful as an actual countdown. "Boarding" status (within 24h) already has
+// its own "Taking off soon" pill, so in practice the hours-included form
+// only shows in the 24–48h window. Shared so a journey's pill reads the
+// same way. `depart` should be the real instant (see cardLead above).
 function scheduledPillLabel(status, depart, now) {
   if (status !== "scheduled") return undefined;
-  const days = Math.floor((depart - now) / 86400000);
-  if (days >= 7) return undefined;
-  return days <= 0 ? "Today" : `${days} day${days === 1 ? "" : "s"} to go`;
+  const totalHours = (depart - now) / (60 * 60 * 1000);
+  const days = Math.floor(totalHours / 24);
+  const hours = Math.floor(totalHours % 24);
+  if (totalHours > 48) return `${days} day${days === 1 ? "" : "s"} to go`;
+  if (days > 0) return `${days} day${days === 1 ? "" : "s"} ${hours} hr${hours === 1 ? "" : "s"} to go`;
+  return `${Math.max(hours, 0)} hr${hours === 1 ? "" : "s"} to go`;
 }
 
 // ── FlightCard ──────────────────────────────────────────────────────────────

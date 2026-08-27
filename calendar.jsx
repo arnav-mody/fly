@@ -175,9 +175,11 @@ function ArriveLine({ event, onOpen }) {
     <button className="dline dline--home" onClick={() => onOpen(event.flight)}>
       <span className="dline__icon" aria-hidden="true">{event.isHome ? "⌂" : "🛬"}</span>
       <span className="dline__text">
-        <span className="dline__name">{p.first}</span>
-        <span className="dline__verb">{event.isHome ? " back home in " : " arrives in "}</span>
-        <span className="dline__place">{toCity}</span>
+        <span className="dline__main">
+          <span className="dline__name">{p.first}</span>
+          <span className="dline__verb">{event.isHome ? " back home in " : " arrives in "}</span>
+          <span className="dline__place">{toCity}</span>
+        </span>
       </span>
     </button>
   );
