@@ -1064,7 +1064,7 @@
     .dline {
       appearance: none; border: 0; background: transparent; color: inherit;
       font: inherit; text-align: left; cursor: default;
-      display: flex; align-items: baseline; gap: 14px;
+      display: flex; align-items: flex-start; gap: 14px;
       padding: 4px 0;
       font-size: 1.18rem;
       line-height: 1.4;
@@ -1074,10 +1074,13 @@
     .dline__icon {
       font-family: var(--font-serif); font-size: 1.3rem; color: var(--ink-faint);
       width: 22px; text-align: center; flex-shrink: 0;
+      margin-top: 0.1em; /* nudged to sit on the first line's baseline, not centered across both lines */
     }
     .dline--travel .dline__icon { color: var(--accent); transform: rotate(-15deg); }
     .dline--home .dline__icon { color: var(--sage); }
-    .dline__text { display: inline; }
+    /* Own line, always, below the main sentence — inline after a name of
+       unpredictable length wrapped inconsistently row to row. */
+    .dline__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
     .dline__name { font-family: var(--font-serif); font-style: italic; color: var(--ink); font-weight: 500; }
     .dline__verb { color: var(--ink-soft); }
     .dline__place { font-family: var(--font-serif); color: var(--ink); }

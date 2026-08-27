@@ -43,11 +43,16 @@ function buildAgenda(cursor, flights) {
         nextDay: !sameUTCDay(f.depart, f.arrive),
       }));
 
+    // Skipped when arrival is the same calendar day as departure — the
+    // travel line already on this same day ("flies to X") says everything
+    // an arrival line would, and showing both reads as redundant. Genuinely
+    // useful once departure and arrival fall on different days, since
+    // that's the one case neither line alone would tell you.
     const arrivals = flights
-      .filter((f) => f.arrive.getTime() >= dStart && f.arrive.getTime() <= dEnd)
+      .filter((f) => f.arrive.getTime() >= dStart && f.arrive.getTime() <= dEnd && !sameUTCDay(f.depart, f.arrive))
       .flatMap((f) => f.travelers.map((pid) => ({
         kind: "arrive", personId: pid, flight: f,
-        isHome: window.MGData.familyById(pid)?.homeAirport === f.to,
+        isHome: window.MGData.placesMatch(window.MGData.familyById(pid)?.homeAirport, f.to),
       })));
 
     if (travel.length || arrivals.length) {
@@ -142,11 +147,15 @@ function TravelLine({ event, onOpen }) {
     <button className="dline dline--travel" onClick={() => onOpen(event.flight)}>
       <span className="dline__icon" aria-hidden="true">{window.MGData.modeMeta(event.flight).icon}</span>
       <span className="dline__text">
-        <span className="dline__name">{names}</span>
-        <span className="dline__verb"> {travelers.length === 1 ? "flies" : "fly"} to </span>
-        <span className="dline__place">{toCity}</span>
+        <span className="dline__main">
+          <span className="dline__name">{names}</span>
+          <span className="dline__verb"> {travelers.length === 1 ? "flies" : "fly"} to </span>
+          <span className="dline__place">{toCity}</span>
+        </span>
+        {/* Its own line, always — inline after a name of unpredictable
+            length wrapped inconsistently from row to row. */}
         <span className="dline__meta">
-          {" "}· from {fromCity}
+          from {fromCity}
           {event.nextDay && <> · arrives {event.arrive.toLocaleString("en-US", { weekday: "short", timeZone: "UTC" })}</>}
         </span>
       </span>
