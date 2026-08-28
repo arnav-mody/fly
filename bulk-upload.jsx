@@ -175,7 +175,10 @@ function BulkTripFields({ card, onChange, onToggleTraveler }) {
       </div>
       <label className="at__checkbox at__checkbox--tight">
         <input type="checkbox" checked={f.arriveNextDay} onChange={(e) => onChange({ arriveNextDay: e.target.checked })} />
-        <span>Arrives the next day</span>
+        <span>
+          Arrives the next day
+          {card.parsed?.arrives_next_day != null && <span className="at__auto-note"> (detected from your ticket)</span>}
+        </span>
       </label>
 
       <div className="at__field at__field--full">

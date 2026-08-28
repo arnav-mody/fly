@@ -576,7 +576,10 @@ function LegFields({ leg, idPrefix, title, isFlight, fromPlaceholder, toPlacehol
       </div>
       <label className="at__checkbox at__checkbox--tight">
         <input type="checkbox" checked={f.arriveNextDay} onChange={(e) => leg.setForm({ ...f, arriveNextDay: e.target.checked })} />
-        <span>Arrives the next day</span>
+        <span>
+          Arrives the next day
+          {leg.parsed?.arrives_next_day != null && <span className="at__auto-note"> (detected from your ticket)</span>}
+        </span>
       </label>
     </div>
   );
@@ -1119,7 +1122,15 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
           </div>
           <label className="at__checkbox at__checkbox--tight">
             <input type="checkbox" checked={form.arriveNextDay} onChange={(e) => setForm({ ...form, arriveNextDay: e.target.checked })} />
-            <span>Arrives the next day</span>
+            <span>
+              Arrives the next day
+              {/* Claude already reads this off the ticket when it can (see
+                  arrives_next_day, parse-flight) — this just says so, so
+                  nobody feels obligated to double-check a box that's
+                  already been set correctly. Still editable in case it
+                  guessed wrong. */}
+              {(uploadParsed || textParsed)?.arrives_next_day != null && <span className="at__auto-note"> (detected from your ticket)</span>}
+            </span>
           </label>
           <div className="at__hint">Local time at departure/arrival — enter exactly what's printed on the ticket.</div>
 

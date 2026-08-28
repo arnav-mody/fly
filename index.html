@@ -28,6 +28,7 @@
       --sky:          oklch(58% 0.13 240);
       --sage:         oklch(58% 0.11 145);
       --warn:         oklch(70% 0.17 60);
+      --warn-bright:  oklch(68% 0.20 40);
 
       --font-serif: "Fraunces", "Iowan Old Style", Georgia, serif;
       --font-sans:  "Figtree", ui-sans-serif, sans-serif;
@@ -349,7 +350,13 @@
     .card--landed { background:
       linear-gradient(135deg, color-mix(in oklab, var(--sage) 12%, var(--paper-soft)), var(--paper-soft));
     }
-    .card__top { display: flex; justify-content: space-between; align-items: center; }
+    .card__top { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+    .card__top-left { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+    .card__date-tag {
+      font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.04em;
+      color: var(--ink-soft); white-space: nowrap;
+      padding: 3px 10px; border-radius: 999px; background: var(--paper-deeper);
+    }
     .card__lead {
       font-family: var(--font-serif); font-size: 1.4rem; line-height: 1.15;
       letter-spacing: -0.01em; text-wrap: balance;
@@ -470,6 +477,18 @@
     .pill--up      { background: var(--paper-deeper); color: var(--ink-soft); }
     .pill--past    { background: transparent; color: var(--ink-faint); border: 0.5px solid var(--paper-line); }
     .pill--air .pill__dot, .pill--landed .pill__dot { background: white; }
+    /* Boarding only (within 24h of departure) — brighter than the plain
+       pill--soon amber, plus a subtle pulse so an imminent departure catches
+       your eye scanning down the board. */
+    .pill--pulse {
+      background: var(--warn-bright); color: var(--ink);
+      animation: pill-pulse 1.8s ease-in-out infinite;
+    }
+    @keyframes pill-pulse {
+      0%   { box-shadow: 0 0 0 0 color-mix(in oklab, var(--warn-bright) 55%, transparent); }
+      70%  { box-shadow: 0 0 0 9px color-mix(in oklab, var(--warn-bright) 0%, transparent); }
+      100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--warn-bright) 0%, transparent); }
+    }
 
     /* ── Countdown ──────────────────────────────────────────────────────── */
     .countdown { display: flex; flex-direction: column; gap: 8px; }
@@ -565,6 +584,10 @@
     }
     .bp-strip--dense .bp-strip__sub { font-size: 0.62rem; }
     .bp-strip__dayshift { color: var(--accent); font-weight: 600; }
+    .day-offset-sup {
+      font-family: var(--font-mono); font-size: 0.62em; font-weight: 700;
+      color: var(--accent); margin-left: 1px;
+    }
 
     /* ── Empty row ──────────────────────────────────────────────────────── */
     .empty-row {
@@ -779,6 +802,7 @@
     .at__checkbox input { width: 16px; height: 16px; accent-color: var(--accent); }
     .at__checkbox--tight { margin-top: -6px; font-size: 0.82rem; }
     .at__checkbox--tight input { width: 14px; height: 14px; }
+    .at__auto-note { color: var(--ink-faint); font-style: italic; }
 
     .at__leg2 {
       display: flex; flex-direction: column; gap: 12px;

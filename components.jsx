@@ -26,6 +26,24 @@ function fmtDuration(ms) {
   if (h === 0) return `${m}m`;
   return `${h}h ${pad2(m)}m`;
 }
+// Whole-day difference between two naive-UTC-convention Dates, using just
+// their stored calendar digits — no timezone conversion needed since each
+// end's own digits already *are* that airport's own local calendar date
+// (see the naive-storage convention noted throughout data.js). This is what
+// tells a boarding-pass row's arrival time whether it landed on a later
+// calendar day than departure, in the arrival airport's own reckoning.
+function naiveDayOffset(laterDate, earlierDate) {
+  const l = Date.UTC(laterDate.getUTCFullYear(), laterDate.getUTCMonth(), laterDate.getUTCDate());
+  const e = Date.UTC(earlierDate.getUTCFullYear(), earlierDate.getUTCMonth(), earlierDate.getUTCDate());
+  return Math.round((l - e) / 86400000);
+}
+// A small "+1"/"+2" superscript next to an arrival time — only ever
+// rendered for a positive offset (arriving before you left isn't a thing
+// this app needs to flag).
+function DayOffsetSup({ n }) {
+  if (!n || n <= 0) return null;
+  return <sup className="day-offset-sup">+{n}</sup>;
+}
 
 // ── useNow ──────────────────────────────────────────────────────────────────
 // A "live" now that ticks once a second, tracking real wall-clock time — used
@@ -95,12 +113,24 @@ function StatusPill({ status, mode = "flight", label }) {
     past:      { txt: "Past trip",        cls: "pill--past" },
   };
   const l = labels[status] ?? labels.scheduled;
+  // Boarding (within 24h of departure) gets a brighter, pulsing treatment on
+  // top of the usual pill--soon styling — the one status urgent enough to
+  // warrant catching your eye at a glance. Layover reuses the same pill--soon
+  // color but isn't "coming up soon" in the same way, so it's deliberately
+  // excluded here rather than folded into the shared class.
+  const urgent = status === "boarding";
   return (
-    <span className={`pill ${l.cls}`}>
+    <span className={`pill ${l.cls} ${urgent ? "pill--pulse" : ""}`}>
       <span className="pill__dot" />
       {label || l.txt}
     </span>
   );
+}
+
+// A small "Fri, Aug 28" tag for the card's top row — lets the headline below
+// drop the date and talk about the destination instead (see cardLead).
+function DateTag({ date }) {
+  return <span className="card__date-tag">{fmtDateShort(date)}</span>;
 }
 
 // ── Countdown ───────────────────────────────────────────────────────────────
@@ -203,8 +233,16 @@ function BoardingPassStrip({ flight, dense = false }) {
   // (see viewerTime in data.js) — silently absent otherwise, never a guess.
   // Kept short ("10:14 AM EST", not "...your time") specifically so it fits
   // in the compact card grid without truncating.
+  // Arrival's viewer-line offset is measured against the *departure*
+  // day (passed as the third arg), not arrival's own printed date — so
+  // every rendering of the arrival, whichever zone it's read in, reports
+  // how many days after takeoff it lands, the one question actually being
+  // asked here. A long-haul crossing many zones can legitimately answer
+  // that differently in different zones (a later local zone can tip over
+  // an extra midnight the departure zone doesn't) — see viewerTime, data.js.
   const vDepart = window.MGData.viewerTime(flight.depart, from);
-  const vArrive = window.MGData.viewerTime(flight.arrive, to);
+  const vArrive = window.MGData.viewerTime(flight.arrive, to, flight.depart);
+  const arriveDayOffset = naiveDayOffset(flight.arrive, flight.depart);
   return (
     <div className={`bp-strip ${dense ? "bp-strip--dense" : ""}`}>
       <div className="bp-strip__col">
@@ -218,12 +256,12 @@ function BoardingPassStrip({ flight, dense = false }) {
       <div className="bp-strip__col">
         <div className="bp-strip__lbl">Depart {from.tz}</div>
         <div className="bp-strip__val">{fmtTime(flight.depart)}</div>
-        {vDepart && <div className="bp-strip__sub">{vDepart.time} {vDepart.tzAbbrev}{vDepart.dayShift !== 0 && <span className="bp-strip__dayshift">{vDepart.dayShift > 0 ? " +1d" : " −1d"}</span>}</div>}
+        {vDepart && <div className="bp-strip__sub">{vDepart.time} {vDepart.tzAbbrev}{vDepart.dayShift !== 0 && <span className="bp-strip__dayshift">{vDepart.dayShift > 0 ? ` +${vDepart.dayShift}d` : ` −${Math.abs(vDepart.dayShift)}d`}</span>}</div>}
       </div>
       <div className="bp-strip__col">
         <div className="bp-strip__lbl">Arrive {to.tz}</div>
-        <div className="bp-strip__val">{fmtTime(flight.arrive)}</div>
-        {vArrive && <div className="bp-strip__sub">{vArrive.time} {vArrive.tzAbbrev}{vArrive.dayShift !== 0 && <span className="bp-strip__dayshift">{vArrive.dayShift > 0 ? " +1d" : " −1d"}</span>}</div>}
+        <div className="bp-strip__val">{fmtTime(flight.arrive)}<DayOffsetSup n={arriveDayOffset} /></div>
+        {vArrive && <div className="bp-strip__sub">{vArrive.time} {vArrive.tzAbbrev}{vArrive.dayShift !== 0 && <span className="bp-strip__dayshift">{vArrive.dayShift > 0 ? ` +${vArrive.dayShift}d` : ` −${Math.abs(vArrive.dayShift)}d`}</span>}</div>}
       </div>
       <div className="bp-strip__col">
         <div className="bp-strip__lbl">Duration</div>
@@ -247,7 +285,7 @@ function BoardingPassStrip({ flight, dense = false }) {
 // skewed by the airport's UTC offset. `travelers` is the full list — the
 // headline names everyone aboard ("Nihar & Roopal"), not just the first
 // person, and conjugates is/are, takes/take, flies/fly to match.
-function cardLead({ status, isFlight, travelers, now, depart, arrive, departReal, arriveReal, layoverCity }) {
+function cardLead({ status, isFlight, travelers, now, depart, arrive, departReal, arriveReal, layoverCity, toCity }) {
   const dep = departReal ?? depart, arr = arriveReal ?? arrive;
   const name = travelers.map((p) => p.first).join(" & ");
   const plural = travelers.length > 1;
@@ -288,16 +326,17 @@ function cardLead({ status, isFlight, travelers, now, depart, arrive, departReal
       </>
     );
   }
-  // scheduled / upcoming — the actual date, not a relative countdown; the
-  // countdown lives in the status pill instead (see pillLabel below) so it
-  // doesn't have to fight the headline for space.
+  // scheduled / upcoming — the destination, not the date: the date now
+  // lives in the card's top-row date tag (see DateTag), and the countdown
+  // lives in the status pill (see scheduledPillLabel below), so the
+  // headline is free to say where they're actually headed instead.
   return (
     <>
       <span className="card__lead-name">{name}</span>
       <span className="card__lead-verb">
-        {isFlight ? (plural ? " fly on " : " flies on ") : (plural ? " leave on " : " leaves on ")}
+        {isFlight ? (plural ? " fly to " : " flies to ") : (plural ? " leave for " : " leaves for ")}
       </span>
-      <span className="card__lead-time">{fmtDateShort(depart)}</span>
+      <span className="card__lead-time">{toCity}</span>
     </>
   );
 }
@@ -354,11 +393,17 @@ function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn, onLi
   // FlightAware URL for it (flightAwareUrl returns null for airlines
   // without a confirmed ICAO code, which the link needs to resolve at all).
   const faUrl = isFlight && flightRealDepart(flight) - now <= hours(48) ? flightAwareUrl(flight) : null;
+  // The date tag replaces the date that used to live in the headline (see
+  // cardLead) — only meaningful before the trip has actually happened.
+  const showDateTag = status === "scheduled" || status === "boarding";
 
   return (
     <article className={`card card--${status}`} onClick={() => onOpen(flight)} data-comment-anchor={`card-${flight.id}`}>
       <div className="card__top">
-        <AvatarStack ids={flight.travelers} size={32} />
+        <div className="card__top-left">
+          <AvatarStack ids={flight.travelers} size={32} />
+          {showDateTag && <DateTag date={flight.depart} />}
+        </div>
         <StatusPill status={status} mode={mode} label={pillLabel} />
       </div>
       <div className="card__lead">
@@ -366,6 +411,7 @@ function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn, onLi
           status, isFlight, travelers, now,
           depart: flight.depart, arrive: flight.arrive,
           departReal: flightRealDepart(flight), arriveReal: flightRealArrive(flight),
+          toCity: to.city,
         })}
       </div>
       {showProgress ? (
@@ -464,11 +510,15 @@ function JourneyCard({ item, onOpen, now }) {
   const showProgress = status === "airborne" && isFlight && airborneLeg;
   const airborneLegTo = showProgress ? airport(airborneLeg.to) : null;
   const arriveViewerTime = showProgress ? window.MGData.viewerTime(airborneLeg.arrive, airborneLegTo) : null;
+  const showDateTag = status === "scheduled" || status === "boarding";
 
   return (
     <article className={`card card--${status === "layover" ? "boarding" : status}`} onClick={() => onOpen(journeyFlight)}>
       <div className="card__top">
-        <AvatarStack ids={first.travelers} size={32} />
+        <div className="card__top-left">
+          <AvatarStack ids={first.travelers} size={32} />
+          {showDateTag && <DateTag date={first.depart} />}
+        </div>
         <StatusPill status={status} mode={mode} label={pillLabel} />
       </div>
       <div className="card__lead">
@@ -476,7 +526,7 @@ function JourneyCard({ item, onOpen, now }) {
           status, isFlight, travelers, now,
           depart: first.depart, arrive: last.arrive,
           departReal: flightRealDepart(first), arriveReal: flightRealArrive(last),
-          layoverCity,
+          layoverCity, toCity: to.city,
         })}
       </div>
       {showProgress ? (
@@ -540,11 +590,15 @@ function RoundTripCard({ item, onOpen, now }) {
   const travelers = outbound.travelers.map(familyById).filter(Boolean);
   const pillLabel = scheduledPillLabel(status, flightRealDepart(outbound), now);
   const faUrl = isFlight && flightRealDepart(outbound) - now <= hours(48) ? flightAwareUrl(outbound) : null;
+  const showDateTag = status === "scheduled" || status === "boarding";
 
   return (
     <article className={`card card--${status}`} onClick={() => onOpen(outbound)}>
       <div className="card__top">
-        <AvatarStack ids={outbound.travelers} size={32} />
+        <div className="card__top-left">
+          <AvatarStack ids={outbound.travelers} size={32} />
+          {showDateTag && <DateTag date={outbound.depart} />}
+        </div>
         <StatusPill status={status} mode={mode} label={pillLabel} />
       </div>
       <div className="card__lead">
@@ -552,6 +606,7 @@ function RoundTripCard({ item, onOpen, now }) {
           status, isFlight, travelers, now,
           depart: outbound.depart, arrive: outbound.arrive,
           departReal: flightRealDepart(outbound), arriveReal: flightRealArrive(outbound),
+          toCity: to.city,
         })}
       </div>
       <div className="card__cities">
@@ -619,6 +674,6 @@ function EmptyRow({ text }) {
 
 Object.assign(window, {
   fmtTime, fmtDateShort, fmtDateLong, fmtDuration, pad2,
-  useNow, Avatar, AvatarStack, StatusPill, Countdown,
+  useNow, Avatar, AvatarStack, StatusPill, DateTag, Countdown,
   FlightProgress, BoardingPassStrip, FlightCard, JourneyCard, RoundTripCard, SectionHead, EmptyRow,
 });

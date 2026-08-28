@@ -374,17 +374,36 @@ const VIEWER_TZ = (() => {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return null; }
 })();
 
+// Whole-day difference between two "YYYY-MM-DD" strings — used to turn a
+// pair of calendar dates into a signed day count (+2, -1, etc.), not just a
+// before/same/after sign. Date.UTC keeps this purely calendar arithmetic,
+// no timezone involved (the strings are already local-to-whatever-zone).
+function daysBetweenYmd(laterYmd, earlierYmd) {
+  const [ly, lm, ld] = laterYmd.split("-").map(Number);
+  const [ey, em, ed] = earlierYmd.split("-").map(Number);
+  return Math.round((Date.UTC(ly, lm - 1, ld) - Date.UTC(ey, em - 1, ed)) / 86400000);
+}
+
 // Given a stored "naive UTC" flight time and the airport it belongs to,
-// return { time: "9:40 AM", tzAbbrev: "EST", dayShift: -1 | 0 | 1 } in the
-// viewer's own zone — dayShift tells the caller whether that's the day
-// before/same/after the airport-local date, so the UI can flag "+1d". The
-// zone abbreviation is shown alongside the time rather than a vague "your
-// time" label: if the browser's guess at the viewer's zone is ever wrong,
-// naming the zone we actually used keeps the claim checkable instead of
-// silently asserting a time that might not be right. Returns null when we
-// can't do the conversion honestly (no known zone for this airport, or the
+// return { time: "9:40 AM", tzAbbrev: "EST", dayShift } in the viewer's own
+// zone — dayShift is a signed day count (not just -1/0/1: a long-haul
+// arrival can legitimately land two calendar days after departure in one
+// zone's reading and only one in another's), telling the caller how far
+// this rendering's calendar date sits from `referenceTime`'s own stored
+// date, so the UI can flag "+1d"/"+2d". referenceTime defaults to
+// flightTime itself (comparing a rendering against its own leg's printed
+// date — the original behavior, still what a departure-time call wants);
+// pass the flight's *departure* time explicitly when calling this for an
+// arrival, so every rendering of the arrival — this airport's own zone,
+// the viewer's zone, any zone — reports its offset from the same "day 0"
+// instead of each drifting against its own leg's date. The zone
+// abbreviation is shown alongside the time rather than a vague "your time"
+// label: if the browser's guess at the viewer's zone is ever wrong, naming
+// the zone we actually used keeps the claim checkable instead of silently
+// asserting a time that might not be right. Returns null when we can't do
+// the conversion honestly (no known zone for this airport, or the
 // browser's own zone couldn't be resolved) rather than guess.
-function viewerTime(flightTime, airportEntry) {
+function viewerTime(flightTime, airportEntry, referenceTime = flightTime) {
   if (!VIEWER_TZ || !airportEntry?.tzId) return null;
   if (airportEntry.tzId === VIEWER_TZ) return null; // same zone — a second line would be redundant
   const real = zonedWallClockToUtc(flightTime, airportEntry.tzId);
@@ -393,8 +412,8 @@ function viewerTime(flightTime, airportEntry) {
   const tzParts = new Intl.DateTimeFormat("en-US", { timeZone: VIEWER_TZ, timeZoneName: "short", hour: "numeric" }).formatToParts(real);
   const tzAbbrev = tzParts.find((p) => p.type === "timeZoneName")?.value || "";
   const viewerYmd = real.toLocaleString("en-CA", { timeZone: VIEWER_TZ }).slice(0, 10); // YYYY-MM-DD
-  const airportYmd = `${flightTime.getUTCFullYear()}-${String(flightTime.getUTCMonth() + 1).padStart(2, "0")}-${String(flightTime.getUTCDate()).padStart(2, "0")}`;
-  const dayShift = viewerYmd === airportYmd ? 0 : (viewerYmd > airportYmd ? 1 : -1);
+  const referenceYmd = `${referenceTime.getUTCFullYear()}-${String(referenceTime.getUTCMonth() + 1).padStart(2, "0")}-${String(referenceTime.getUTCDate()).padStart(2, "0")}`;
+  const dayShift = daysBetweenYmd(viewerYmd, referenceYmd);
   return { time: timeStr, tzAbbrev, dayShift };
 }
 
