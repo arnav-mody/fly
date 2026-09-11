@@ -784,6 +784,7 @@
 
     /* Journey-mode toggle */
     .at__mode-toggle { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .at__mode-toggle--2 { grid-template-columns: repeat(2, 1fr); }
     .at__mode-toggle button {
       appearance: none; border: 0.5px solid var(--paper-line); background: var(--paper-soft);
       border-radius: 10px; padding: 8px; display: flex; align-items: center; justify-content: center;
@@ -867,6 +868,28 @@
     }
     .at__person:hover { background: var(--paper-deeper); }
     .at__person.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+    .at__person--add {
+      border-style: dashed; color: var(--ink-faint); padding: 4px 12px;
+    }
+    .at__person--add:hover { color: var(--ink); }
+    .at__view-more {
+      appearance: none; border: 0; background: none; padding: 2px 0; align-self: flex-start;
+      font: inherit; font-size: 0.8rem; color: var(--ink-soft); text-decoration: underline;
+      text-underline-offset: 2px; cursor: pointer;
+    }
+    .at__view-more:hover { color: var(--ink); }
+    .at__guest-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .at__guest-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: color-mix(in oklab, var(--accent) 12%, var(--paper-soft));
+      border: 0.5px solid color-mix(in oklab, var(--accent) 35%, var(--paper-line));
+      border-radius: 999px; padding: 3px 6px 3px 10px; font-size: 0.82rem; color: var(--ink);
+    }
+    .at__guest-chip button {
+      appearance: none; border: 0; background: none; cursor: pointer;
+      color: var(--ink-faint); font-size: 0.75rem; padding: 2px;
+    }
+    .at__guest-chip button:hover { color: var(--warn); }
 
     .at__actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; }
     .at__primary, .at__secondary {
@@ -971,6 +994,15 @@
     @media (max-width: 860px) { .travelers__grid { grid-template-columns: repeat(3, 1fr); } }
     @media (max-width: 560px) { .travelers__grid { grid-template-columns: repeat(2, 1fr); } }
     .trav-card { position: relative; }
+    .trav-card--add {
+      appearance: none; width: 100%; min-height: 100%; cursor: pointer; font: inherit; color: var(--ink-soft);
+      background: transparent; border-radius: var(--radius); padding: 16px 12px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+      border: 1.5px dashed var(--paper-line);
+      transition: background .15s, border-color .15s, color .15s;
+    }
+    .trav-card--add:hover { background: var(--paper-soft); border-color: var(--ink-faint); color: var(--ink); }
+    .trav-card__add-icon { font-size: 1.4rem; line-height: 1; }
     .trav-card__hit {
       width: 100%; appearance: none; border: 0; cursor: pointer; font: inherit; color: inherit;
       background: var(--paper-soft); border-radius: var(--radius); padding: 16px 12px;

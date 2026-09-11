@@ -585,10 +585,132 @@ function LegFields({ leg, idPrefix, title, isFlight, fromPlaceholder, toPlacehol
   );
 }
 
-function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
+// ── AddPerson modal ─────────────────────────────────────────────────────────
+// Creates a family_members row via save-person — the only two ways anyone
+// gets added to the app. `allowGuest` (passed only from AddTripModal's
+// traveler picker) shows the profile-vs-guest choice up front; called from
+// the Travelers tab, there's no such choice — anything added there is by
+// definition a full, permanent roster member. `onCreated` gets the raw
+// inserted row back (snake_case, straight off the table) so a caller that
+// wants to auto-select this person as a traveler can do so immediately,
+// without waiting on a full family re-fetch to land first.
+function AddPersonModal({ open, onClose, onCreated, allowGuest = false }) {
+  const [choice, setChoice] = React.useState("profile"); // "profile" | "guest" — only shown when allowGuest
+  const [firstName, setFirstName] = React.useState("");
+  const [lastName, setLastName] = React.useState("");
+  const [homeCity, setHomeCity] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState(null);
+
+  React.useEffect(() => {
+    if (!open) {
+      setTimeout(() => {
+        setChoice("profile"); setFirstName(""); setLastName(""); setHomeCity("");
+        setSaving(false); setError(null);
+      }, 200);
+    }
+  }, [open]);
+
+  const isGuest = allowGuest && choice === "guest";
+
+  const submit = () => {
+    if (!firstName.trim() || !lastName.trim()) {
+      setError("A first and last name are both needed.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    withTimeout(window.supabaseClient.functions.invoke("save-person", {
+      body: {
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        isGuest,
+        homeAirport: !isGuest && homeCity ? placeCode(homeCity) : undefined,
+      },
+    }), 15000, "Adding").then(async ({ data, error: err }) => {
+      setSaving(false);
+      if (err || !data || !data.ok) {
+        setError((data && data.error) || await readFunctionError(err) || "Couldn't add them — mind trying again?");
+        return;
+      }
+      onCreated(data.person);
+      onClose();
+    }).catch((err) => {
+      setSaving(false);
+      setError(String((err && err.message) || err));
+    });
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} size="md">
+      <div className="at">
+        <header className="at__head">
+          <h2 className="at__title">Add Someone</h2>
+        </header>
+        <div className="at__body">
+          {allowGuest && (
+            <div className="at__field at__field--full">
+              <span>How should they show up?</span>
+              <div className="at__mode-toggle at__mode-toggle--2" role="radiogroup" aria-label="Profile type">
+                <button type="button" role="radio" aria-checked={choice === "profile"} className={choice === "profile" ? "on" : ""} onClick={() => setChoice("profile")}>
+                  <span>Create their profile</span>
+                </button>
+                <button type="button" role="radio" aria-checked={choice === "guest"} className={choice === "guest" ? "on" : ""} onClick={() => setChoice("guest")}>
+                  <span>Just this trip</span>
+                </button>
+              </div>
+              <div className="at__hint">
+                {choice === "profile"
+                  ? "They'll show up on the board going forward and can be added to future trips."
+                  : "They'll appear as a traveler on this trip only — not on the roster or in the people filter."}
+              </div>
+            </div>
+          )}
+          <div className="at__row">
+            <label className="at__field">
+              <span>First name</span>
+              <input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="Priya" autoFocus />
+            </label>
+            <label className="at__field">
+              <span>Last name</span>
+              <input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Shah" />
+            </label>
+          </div>
+          {!isGuest && (
+            <label className="at__field at__field--full">
+              <span>Home city (optional)</span>
+              <input list="ap-airport-list" value={homeCity} onChange={(e) => setHomeCity(e.target.value)} placeholder="City or airport" />
+            </label>
+          )}
+          <datalist id="ap-airport-list">
+            {Object.entries(_AP).map(([code, a]) => (
+              <option key={code} value={`${a.city} (${code})`}>{a.city}, {a.country}</option>
+            ))}
+          </datalist>
+          {error && <div className="at__error">{error}</div>}
+          <div className="at__actions">
+            <button className="at__secondary" onClick={onClose} disabled={saving}>Cancel</button>
+            <button className="at__primary" onClick={submit} disabled={saving}>
+              {saving ? <><span className="at__spinner at__spinner--light" aria-hidden="true" /> Adding…</> : "Add"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function AddTripModal({ open, onClose, onSubmit, editing, prefill, onFamilyChanged }) {
   const [mode, setMode] = React.useState("flight");     // "flight" | "train" | "car"
   const [form, setForm] = React.useState(EMPTY_TRIP_FORM);
   const [roundTrip, setRoundTrip] = React.useState(false); // create-flow only — logs both legs at once
+
+  // "+ Add someone new" in the traveler picker — either a full profile (goes
+  // on to show up everywhere, going forward) or a guest for just this trip
+  // (see AddPersonModal). showAllTravelers lifts the picker's 15-person cap
+  // (5 rows of 3) once the roster's grown past a first glance's worth.
+  const [addPersonOpen, setAddPersonOpen] = React.useState(false);
+  const [showAllTravelers, setShowAllTravelers] = React.useState(false);
 
   // Connecting flight — create-flow only, mutually exclusive with round trip.
   // Same idea as the round-trip flow (save two legs in one submit) but the
@@ -662,6 +784,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
         setPasteOpen(false); setPasteText(""); setParsingText(false); setTextParsed(null); setTextError(null);
         setUploading(false); setUploadParsed(null); setUploadError(null); setUploaded(false);
         setAddingConnection(false); leg2.reset(); returnLeg.reset();
+        setAddPersonOpen(false); setShowAllTravelers(false);
         setSaving(false); setSubmitError(null);
       }, 200);
     }
@@ -944,6 +1067,16 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
     }
   }
 
+  // Guests are deliberately left out of the general picker (that's the
+  // whole point of adding someone "just for this trip" — see is_guest,
+  // schema.sql) — full members only, capped at 15 (5 rows of 3) until asked
+  // to show more so the grid doesn't get unwieldy as the roster grows. A
+  // selected guest still needs to be visible somewhere, hence the chip row.
+  const rosterOnly = _FAM.filter((p) => !p.isGuest);
+  const visibleRoster = showAllTravelers ? rosterOnly : rosterOnly.slice(0, 15);
+  const hiddenRosterCount = rosterOnly.length - visibleRoster.length;
+  const selectedGuests = form.travelers.map((id) => _FAM.find((p) => p.id === id)).filter((p) => p && p.isGuest);
+
   return (
     <Modal open={open} onClose={onClose} size="md">
       <div className="at">
@@ -1179,7 +1312,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
           <div className="at__field at__field--full">
             <span>Who's traveling?</span>
             <div className="at__people">
-              {_FAM.map((p) => (
+              {visibleRoster.map((p) => (
                 <button
                   key={p.id}
                   type="button"
@@ -1190,8 +1323,40 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
                   <span>{p.first}</span>
                 </button>
               ))}
+              <button type="button" className="at__person at__person--add" onClick={() => setAddPersonOpen(true)}>
+                <span aria-hidden="true">＋</span>
+                <span>Add someone new</span>
+              </button>
             </div>
+            {hiddenRosterCount > 0 && (
+              <button type="button" className="at__view-more" onClick={() => setShowAllTravelers(true)}>
+                View {hiddenRosterCount} more
+              </button>
+            )}
+            {/* A guest added just for this trip won't show up in the picker
+                above (that's the point — see is_guest, schema.sql) so their
+                only visible confirmation is this chip. */}
+            {selectedGuests.length > 0 && (
+              <div className="at__guest-chips">
+                {selectedGuests.map((p) => (
+                  <span key={p.id} className="at__guest-chip">
+                    <Avatar person={p} size={20} />
+                    {p.first} {p.last}
+                    <button type="button" onClick={() => toggleTraveler(p.id)} aria-label={`Remove ${p.first}`}>✕</button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
+          <AddPersonModal
+            open={addPersonOpen}
+            allowGuest
+            onClose={() => setAddPersonOpen(false)}
+            onCreated={(person) => {
+              toggleTraveler(person.id);
+              onFamilyChanged && onFamilyChanged();
+            }}
+          />
 
           <label className="at__field at__field--full">
             <span>A note for the family (optional)</span>
@@ -1212,4 +1377,4 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill }) {
   );
 }
 
-Object.assign(window, { Modal, FlightDetailModal, AddTripModal });
+Object.assign(window, { Modal, FlightDetailModal, AddTripModal, AddPersonModal });

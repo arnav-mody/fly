@@ -70,27 +70,38 @@ function App() {
   }, []);
   React.useEffect(() => { refreshFlights(); }, [refreshFlights]);
 
-  // Home airports — editable from the Travelers tab (see TravelersView).
-  // FAMILY is a shared module-level array (data.js); mutating each person's
-  // homeAirport in place is what everything else in the app already reads
-  // (familyById, isHomeArrival, etc.) — bumping this counter is just what
-  // forces React to notice the mutation happened and re-render.
-  const [, setHomeVersion] = React.useState(0);
-  const refreshHomes = React.useCallback(() => {
+  // The family roster — FAMILY (data.js) starts as a hardcoded array (the
+  // original 11 seeded members) and this fetch both keeps it in sync (home
+  // airport edited from the Travelers tab, etc.) and grows it: anyone added
+  // later via save-person (a new profile, or a one-trip guest) exists only
+  // in Supabase until this pushes a matching entry onto FAMILY. Mutating in
+  // place — updating an existing person's fields, pushing a new object for
+  // an id we haven't seen — is what lets everything else in the app keep
+  // reading the bare FAMILY array/familyById() without knowing any of this
+  // is happening; bumping this counter is just what forces React to notice.
+  const [, setFamilyVersion] = React.useState(0);
+  const refreshFamily = React.useCallback(() => {
     if (!window.supabaseClient) return;
     window.supabaseClient
       .from("family_members")
-      .select("id, home_airport")
+      .select("id, first_name, last_name, nickname, role, home_city, home_airport, tone, is_guest")
       .then(({ data, error }) => {
-        if (error) { console.error("Couldn't load home airports from Supabase:", error.message); return; }
+        if (error) { console.error("Couldn't load the family roster from Supabase:", error.message); return; }
         for (const row of data || []) {
-          const p = familyById(row.id);
-          if (p) p.homeAirport = row.home_airport || null;
+          const fields = {
+            first: row.first_name, last: row.last_name,
+            nick: row.nickname || undefined, role: row.role || undefined,
+            home: row.home_city || null, homeAirport: row.home_airport || null,
+            tone: row.tone || 1, isGuest: !!row.is_guest,
+          };
+          const existing = familyById(row.id);
+          if (existing) Object.assign(existing, fields);
+          else FAMILY.push({ id: row.id, photo: null, ...fields });
         }
-        setHomeVersion((v) => v + 1);
+        setFamilyVersion((v) => v + 1);
       });
   }, []);
-  React.useEffect(() => { refreshHomes(); }, [refreshHomes]);
+  React.useEffect(() => { refreshFamily(); }, [refreshFamily]);
 
   const allFlights = [...FLIGHTS, ...dbFlights];
 
@@ -227,7 +238,7 @@ function App() {
           />
         )}
         {view === "travelers" && (
-          <TravelersView allFlights={allFlights} now={now} onSelectPerson={(id) => { setFilterIds([id]); setView("board"); }} onHomeChanged={refreshHomes} />
+          <TravelersView allFlights={allFlights} now={now} onSelectPerson={(id) => { setFilterIds([id]); setView("board"); }} onFamilyChanged={refreshFamily} />
         )}
       </main>
 
@@ -249,6 +260,7 @@ function App() {
         onSubmit={handleSubmit}
         editing={editingFlight}
         prefill={returnPrefill}
+        onFamilyChanged={refreshFamily}
       />
       <BulkUploadModal
         open={bulkOpen}
@@ -363,7 +375,7 @@ function PeopleFilter({ ids, onChange }) {
         <div className="pfil__menu">
           <button className="pfil__all" onClick={() => onChange([])}>Everyone</button>
           <div className="pfil__list">
-            {FAMILY.map((p) => {
+            {FAMILY.filter((p) => !p.isGuest).map((p) => {
               const on = ids.includes(p.id);
               return (
                 <label key={p.id} className="pfil__item" data-on={on ? "1" : "0"}>
@@ -558,9 +570,16 @@ function HeroBoarding({ flight, now, onOpen }) {
 }
 
 // ── TravelersView ───────────────────────────────────────────────────────────
-function TravelersView({ allFlights, now, onSelectPerson, onHomeChanged }) {
+function TravelersView({ allFlights, now, onSelectPerson, onFamilyChanged }) {
+  const [addPersonOpen, setAddPersonOpen] = React.useState(false);
+
+  // Guests (added just for one trip — see is_guest, schema.sql) don't belong
+  // on the general roster; this view is specifically the permanent-member
+  // directory.
+  const roster = FAMILY.filter((p) => !p.isGuest);
+
   // Build per-person stats.
-  const stats = FAMILY.map((p) => {
+  const stats = roster.map((p) => {
     const flown = allFlights.filter((f) => f.travelers.includes(p.id));
     const upcoming = flown.filter((f) => {
       const s = flightStatus(f, now);
@@ -639,7 +658,7 @@ function TravelersView({ allFlights, now, onSelectPerson, onHomeChanged }) {
         return;
       }
       setHomeEditing(null);
-      onHomeChanged();
+      onFamilyChanged();
     }).catch((err) => {
       setHomeSaving(false);
       setHomeErrorFor(String((err && err.message) || err));
@@ -721,12 +740,21 @@ function TravelersView({ allFlights, now, onSelectPerson, onHomeChanged }) {
             </div>
           </div>
         ))}
+        <button className="trav-card trav-card--add" onClick={() => setAddPersonOpen(true)}>
+          <span className="trav-card__add-icon" aria-hidden="true">＋</span>
+          <span>Add someone</span>
+        </button>
       </div>
       <datalist id="trav-airport-list">
         {Object.entries(AIRPORTS).map(([code, a]) => (
           <option key={code} value={`${a.city} (${code})`}>{a.city}, {a.country}</option>
         ))}
       </datalist>
+      <AddPersonModal
+        open={addPersonOpen}
+        onClose={() => setAddPersonOpen(false)}
+        onCreated={() => onFamilyChanged()}
+      />
     </div>
   );
 }

@@ -206,3 +206,15 @@ alter table flights add column if not exists return_dismissed boolean not null d
 -- writes to Storage at all (the image only ever exists in memory for the
 -- one request that reads it), and this column has nothing left to point to.
 alter table flights drop column if exists source_image_path;
+
+-- ── Guest travelers ───────────────────────────────────────────────────────────
+-- A traveler added just for one trip (someone's friend flying with them once,
+-- say) still needs a real family_members row — flight_travelers.family_member_id
+-- is a hard foreign key, and a guest needs the exact same avatar/name/lookup
+-- machinery a real roster member gets. is_guest is what keeps a guest out of
+-- the roster-facing surfaces (Travelers tab, the person filter, the default
+-- "who's traveling" picker) while still resolving correctly wherever a
+-- specific flight's travelers are shown. Promoting a guest to a full member
+-- later is just flipping this flag — no data migration, their whole travel
+-- history is already attached to the same row.
+alter table family_members add column if not exists is_guest boolean not null default false;

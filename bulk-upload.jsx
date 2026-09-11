@@ -184,7 +184,12 @@ function BulkTripFields({ card, onChange, onToggleTraveler }) {
       <div className="at__field at__field--full">
         <span>Who's traveling?</span>
         <div className="at__people">
-          {FAMILY.map((p) => (
+          {/* Guests (added just for one trip via AddTripModal — see
+              is_guest, schema.sql) are excluded here same as everywhere else
+              the general roster is picked from; bulk upload doesn't offer
+              its own "add someone new" flow, so there's no way to select one
+              anyway. */}
+          {FAMILY.filter((p) => !p.isGuest).map((p) => (
             <button key={p.id} type="button" className={`at__person ${f.travelers.includes(p.id) ? "on" : ""}`} onClick={() => onToggleTraveler(p.id)}>
               <Avatar person={p} size={28} />
               <span>{p.first}</span>
