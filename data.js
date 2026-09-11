@@ -444,8 +444,29 @@ const airport     = (code) => AIRPORTS[code] || { code: code || "", city: code |
 // *later* than a still-naive arrival, producing a negative duration. Falling
 // back to the naive value for both ends is less precise but never
 // self-contradictory.
+// Train/car legs store free-typed city text in from/to, not an airport code
+// — airport(place) doesn't recognize "Baltimore" the way it recognizes
+// "BWI", so it falls back to a bare {code, city, ...} object with no tzId.
+// Without this, flightRealTimes below had no zone to correct with and fell
+// back to comparing naive digits directly against a real "now" — which
+// isn't a fallback so much as silently wrong for any zone that isn't UTC:
+// a train stored as "18:00" Eastern gets read as 18:00 *UTC* (14:00
+// Eastern), so the board can flip to "in progress" hours before it
+// actually departs. This recovers a real zone the same way placesMatch
+// already recognizes "Baltimore" and "BWI" as the same place: match the
+// typed text against a known airport's city name. Covers the common case
+// (someone types a real city) without requiring train/car legs to have
+// their own timezone database.
+function placeTzId(place) {
+  if (!place) return null;
+  const norm = String(place).trim().toUpperCase();
+  const hit = Object.values(AIRPORTS).find((a) => a.city.toUpperCase() === norm);
+  return hit?.tzId ?? null;
+}
+
 function flightRealTimes(f) {
-  const fromTz = airport(f.from)?.tzId, toTz = airport(f.to)?.tzId;
+  const fromTz = airport(f.from)?.tzId ?? placeTzId(f.from);
+  const toTz = airport(f.to)?.tzId ?? placeTzId(f.to);
   if (!fromTz || !toTz) return { depart: f.depart, arrive: f.arrive };
   return { depart: zonedWallClockToUtc(f.depart, fromTz), arrive: zonedWallClockToUtc(f.arrive, toTz) };
 }
@@ -613,7 +634,7 @@ function itemStatus(item, now = new Date()) {
 window.MGData = {
   NOW, FAMILY, AIRPORTS, AIRLINES, FLIGHTS, MODE_META,
   flightStatus, familyById, airline, airport, flightAwareUrl, modeOf, modeMeta, hasLoggedReturn, isHomeArrival, hasCoords,
-  viewerTime, VIEWER_TZ, flightRealDepart, flightRealArrive, flightProgress,
+  viewerTime, VIEWER_TZ, flightRealDepart, flightRealArrive, flightProgress, placeTzId,
   isConnectionCandidate, findConnectionCandidate, buildJourneys, pairRoundTrips, journeyStatus, itemStatus, placesMatch,
   CONNECTION_MIN_GAP, CONNECTION_MAX_GAP,
   minutes, hours, days,

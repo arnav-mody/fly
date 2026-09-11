@@ -142,6 +142,9 @@ function TravelLine({ event, onOpen }) {
   const names = travelers.map((p) => p.first).join(" & ");
   const toCity = window.MGData.airport(event.to)?.city ?? event.to;
   const fromCity = window.MGData.airport(event.from)?.city ?? event.from;
+  const isFlight = window.MGData.modeOf(event.flight) === "flight";
+  const plural = travelers.length > 1;
+  const verb = isFlight ? (plural ? "fly" : "flies") : (plural ? "travel" : "travels");
 
   return (
     <button className="dline dline--travel" onClick={() => onOpen(event.flight)}>
@@ -149,7 +152,7 @@ function TravelLine({ event, onOpen }) {
       <span className="dline__text">
         <span className="dline__main">
           <span className="dline__name">{names}</span>
-          <span className="dline__verb"> {travelers.length === 1 ? "flies" : "fly"} to </span>
+          <span className="dline__verb"> {verb} to </span>
           <span className="dline__place">{toCity}</span>
         </span>
         {/* Its own line, always — inline after a name of unpredictable
@@ -173,7 +176,7 @@ function ArriveLine({ event, onOpen }) {
   const toCity = window.MGData.airport(event.flight.to)?.city ?? event.flight.to;
   return (
     <button className="dline dline--home" onClick={() => onOpen(event.flight)}>
-      <span className="dline__icon" aria-hidden="true">{event.isHome ? "⌂" : "🛬"}</span>
+      <span className="dline__icon" aria-hidden="true">{event.isHome ? "⌂" : window.MGData.modeMeta(event.flight).icon}</span>
       <span className="dline__text">
         <span className="dline__main">
           <span className="dline__name">{p.first}</span>
