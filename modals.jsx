@@ -663,12 +663,18 @@ function AddPersonModal({ open, onClose, onCreated, allowGuest = false }) {
   }, [open]);
 
   const isGuest = allowGuest && choice === "guest";
+  // `saving` disables the button, but only after the next render — a fast
+  // double-tap lands both taps before that, and that's how the roster ended
+  // up with two Harsh Kapadias four seconds apart. A ref flips immediately.
+  const inFlight = React.useRef(false);
 
   const submit = () => {
+    if (inFlight.current) return;
     if (!firstName.trim() || !lastName.trim()) {
       setError("A first and last name are both needed.");
       return;
     }
+    inFlight.current = true;
     setSaving(true);
     setError(null);
     withTimeout(window.supabaseClient.functions.invoke("save-person", {
@@ -679,6 +685,7 @@ function AddPersonModal({ open, onClose, onCreated, allowGuest = false }) {
         homeAirport: !isGuest && homeCity ? placeCode(homeCity) : undefined,
       },
     }), 15000, "Adding").then(async ({ data, error: err }) => {
+      inFlight.current = false;
       setSaving(false);
       if (err || !data || !data.ok) {
         setError((data && data.error) || await readFunctionError(err) || "Couldn't add them — mind trying again?");
@@ -687,6 +694,7 @@ function AddPersonModal({ open, onClose, onCreated, allowGuest = false }) {
       onCreated(data.person);
       onClose();
     }).catch((err) => {
+      inFlight.current = false;
       setSaving(false);
       setError(String((err && err.message) || err));
     });

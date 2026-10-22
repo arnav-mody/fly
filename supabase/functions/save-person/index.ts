@@ -57,6 +57,18 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
+    // The same full profile submitted twice within a couple of minutes is a
+    // double-submit (two taps, a retry after a slow response), not two
+    // people — hand back the one just created instead of making a twin.
+    // Two real people can share a name, so this only looks back briefly.
+    if (!guest) {
+      const since = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+      const { data: recent } = await supabase.from("family_members")
+        .select("*").eq("first_name", first).eq("last_name", last).eq("is_guest", false)
+        .gte("created_at", since).limit(1).maybeSingle();
+      if (recent) return json({ ok: true, person: recent });
+    }
+
     if (code) {
       await supabase.from("airports").upsert({ code }, { onConflict: "code", ignoreDuplicates: true });
     }
