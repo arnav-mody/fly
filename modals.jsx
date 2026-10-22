@@ -322,7 +322,7 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
 // required. Uploading or pasting fills in the same fields live, in place.
 const EMPTY_TRIP_FORM = {
   travelers: [], airline: "", number: "",
-  from: "", to: "", date: "", departTime: "", arriveTime: "", arriveNextDay: false, note: "",
+  from: "", to: "", date: "", departTime: "", arriveTime: "", arriveDayOffset: 0, note: "",
 };
 
 // Loose name match against the family roster, used to auto-check a traveler
@@ -343,24 +343,77 @@ function matchTravelerByName(name) {
   return hit ? hit.id : null;
 }
 
-// One date field drives both depart and arrive by default — fine for most
-// trips, wrong for anything that lands the next calendar day (any real
-// long-haul: JFK–BOM, PHL–LHR overnight, etc.), which would otherwise store
-// an arrival that's earlier in real terms than its own departure. The
-// "Arrives next day" checkbox is what fixes that on the form side; this is
-// where it actually gets applied when building the timestamps to save.
-function addOneDay(dateStr) {
-  const d = new Date(`${dateStr}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10);
+// One date field drives both depart and arrive, plus an "Arrives" day
+// picker (same day / next day / 2 days later…) for anything that lands on a
+// different calendar day — JFK–BOM lands two days later, which a plain
+// "next day" checkbox couldn't say. resolveLegTimes (data.js) does the real
+// work, including correcting a day that can't be right; this just adapts a
+// form's fields to it. `from`/`to` are whatever the form holds (display text
+// or code) — placeCode normalizes them the same way the save does.
+function buildDepartArrive(form, mode = "flight", fallback = {}) {
+  const r = window.MGData.resolveLegTimes({
+    mode,
+    from: form.from ? placeCode(form.from) : fallback.from,
+    to: form.to ? placeCode(form.to) : fallback.to,
+    date: form.date, departTime: form.departTime, arriveTime: form.arriveTime,
+    arriveDayOffset: form.arriveDayOffset,
+  });
+  return { ...r, departAt: r.depart, arriveAt: r.arrive };
 }
-function buildDepartArrive(date, departTime, arriveTime, arriveNextDay) {
-  const departAt = new Date(`${date}T${departTime}:00Z`);
-  // Arrival is optional (mainly for train/car, where it's often not known
-  // upfront) — default to 2 hours out so status still has a valid window.
-  if (!arriveTime) return { departAt, arriveAt: new Date(departAt.getTime() + 2 * 60 * 60 * 1000) };
-  const arriveAt = new Date(`${arriveNextDay ? addOneDay(date) : date}T${arriveTime}:00Z`);
-  return { departAt, arriveAt };
+
+// parse-flight now reports arrive_day_offset (an integer); older responses
+// only had the arrives_next_day boolean. null means "the ticket didn't say".
+function parsedDayOffset(p) {
+  if (!p) return null;
+  if (Number.isInteger(p.arrive_day_offset)) return p.arrive_day_offset;
+  if (p.arrives_next_day == null) return null;
+  return p.arrives_next_day ? 1 : 0;
+}
+
+// An array, not an object literal — object keys that look like integers
+// iterate numerically first, which put "-1" at the bottom of the list.
+const ARRIVE_DAY_OPTIONS = [[-1, "The day before"], [0, "Same day"], [1, "Next day"], [2, "2 days later"], [3, "3 days later"]];
+const ARRIVE_DAY_LABELS = Object.fromEntries(ARRIVE_DAY_OPTIONS);
+
+// The "Arrives" day picker plus one line saying what will actually be saved
+// — the landing day and total travel time, or why that isn't checkable — so
+// a wrong day is visible before it's on the board, not after.
+function ArriveDayField({ form, onChange, mode = "flight", fallback, detected }) {
+  let summary = null, warn = false;
+  const r = form.date && form.departTime && (form.from || fallback?.from) && (form.to || fallback?.to)
+    ? buildDepartArrive(form, mode, fallback) : null;
+  if (r && !r.invalid) {
+    const day = r.arrive.toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+    const total = r.durationMs != null ? ` · ${fmtDuration(r.durationMs)} total` : "";
+    if (r.unknownZone) {
+      warn = true;
+      summary = `We don't know the time zone for one of these places, so we can't double-check these times. Lands ${day}.`;
+    } else if (r.estimated) {
+      summary = `No arrival time, so we'll estimate it: about ${fmtTime(r.arrive)} on ${day}${total}.`;
+    } else if (r.impossible) {
+      warn = true;
+      summary = "These times don't line up on any arrival day — double-check the departure and arrival times.";
+    } else if (r.adjusted) {
+      warn = true;
+      summary = `We'll save this as arriving ${ARRIVE_DAY_LABELS[r.dayOffset].toLowerCase()} (${day}${total}) — "${ARRIVE_DAY_LABELS[form.arriveDayOffset ?? 0].toLowerCase()}" would land before takeoff.`;
+    } else {
+      summary = `Lands ${day}${total}.`;
+    }
+  }
+  return (
+    <>
+      <label className="at__field at__field--full">
+        <span>
+          Arrives
+          {detected && <span className="at__auto-note"> (detected from your ticket)</span>}
+        </span>
+        <select value={form.arriveDayOffset ?? 0} onChange={(e) => onChange(Number(e.target.value))}>
+          {ARRIVE_DAY_OPTIONS.map(([n, label]) => <option key={n} value={n}>{label}</option>)}
+        </select>
+      </label>
+      {summary && <div className={`at__hint ${warn ? "at__hint--warn" : ""}`}>{summary}</div>}
+    </>
+  );
 }
 
 // UTC-getters because the app deliberately stores clock digits "as if" UTC
@@ -392,7 +445,7 @@ function placeCode(value) {
 }
 
 const EMPTY_LEG_FORM = {
-  airline: "", number: "", from: "", to: "", date: "", departTime: "", arriveTime: "", arriveNextDay: false,
+  airline: "", number: "", from: "", to: "", date: "", departTime: "", arriveTime: "", arriveDayOffset: 0,
 };
 
 // One "second leg" — used identically for the connecting-flight leg and the
@@ -424,7 +477,7 @@ function useLegForm() {
       date: p.date || l.date,
       departTime: p.depart_time || l.departTime,
       arriveTime: p.arrive_time || l.arriveTime,
-      arriveNextDay: p.arrives_next_day ?? l.arriveNextDay,
+      arriveDayOffset: parsedDayOffset(p) ?? l.arriveDayOffset,
     }));
   };
 
@@ -494,7 +547,7 @@ function useLegForm() {
 
 // The upload/paste/manual-entry block for one leg — identical UI whether
 // it's a connecting flight's second leg or a round trip's return leg.
-function LegFields({ leg, idPrefix, title, isFlight, fromPlaceholder, toPlaceholder, fromOptional, toOptional, pasteExample }) {
+function LegFields({ leg, idPrefix, title, isFlight, mode, fallbackRoute, fromPlaceholder, toPlaceholder, fromOptional, toOptional, pasteExample }) {
   const f = leg.form;
   return (
     <div className="at__leg2">
@@ -574,13 +627,11 @@ function LegFields({ leg, idPrefix, title, isFlight, fromPlaceholder, toPlacehol
           <input type="time" value={f.arriveTime} onChange={(e) => leg.setForm({ ...f, arriveTime: e.target.value })} />
         </label>
       </div>
-      <label className="at__checkbox at__checkbox--tight">
-        <input type="checkbox" checked={f.arriveNextDay} onChange={(e) => leg.setForm({ ...f, arriveNextDay: e.target.checked })} />
-        <span>
-          Arrives the next day
-          {leg.parsed?.arrives_next_day != null && <span className="at__auto-note"> (detected from your ticket)</span>}
-        </span>
-      </label>
+      <ArriveDayField
+        form={f} mode={mode || (isFlight ? "flight" : "car")} fallback={fallbackRoute}
+        detected={parsedDayOffset(leg.parsed) != null}
+        onChange={(n) => leg.setForm({ ...f, arriveDayOffset: n })}
+      />
     </div>
   );
 }
@@ -764,7 +815,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill, onFamilyChang
         date: dep.date,
         departTime: dep.time,
         arriveTime: arr.time,
-        arriveNextDay: arr.date > dep.date,
+        arriveDayOffset: window.MGData.daysBetweenYmd(arr.date, dep.date),
         note: editing.note || "",
       });
     } else if (open && prefill) {
@@ -800,7 +851,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill, onFamilyChang
       date: p.date || f.date,
       departTime: p.depart_time || f.departTime,
       arriveTime: p.arrive_time || f.arriveTime,
-      arriveNextDay: p.arrives_next_day ?? f.arriveNextDay,
+      arriveDayOffset: parsedDayOffset(p) ?? f.arriveDayOffset,
       travelers: !f.travelers.length && matchTravelerByName(p.passenger_name)
         ? [matchTravelerByName(p.passenger_name)]
         : f.travelers,
@@ -851,7 +902,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill, onFamilyChang
     // hanging.
     try {
       const fromCode = placeCode(form.from), toCode = placeCode(form.to);
-      const { departAt, arriveAt } = buildDepartArrive(form.date, form.departTime, form.arriveTime, form.arriveNextDay);
+      const { departAt, arriveAt } = buildDepartArrive(form, mode);
 
       // Two legs sharing a journeyId collapse into one card on the board
       // (see buildJourneys in data.js) — generated client-side since both
@@ -894,7 +945,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill, onFamilyChang
 
           if (doConnection) {
             const leg2FromCode = placeCode(leg2.form.from), leg2ToCode = placeCode(leg2.form.to);
-            const { departAt: leg2DepartAt, arriveAt: leg2ArriveAt } = buildDepartArrive(leg2.form.date, leg2.form.departTime, leg2.form.arriveTime, leg2.form.arriveNextDay);
+            const { departAt: leg2DepartAt, arriveAt: leg2ArriveAt } = buildDepartArrive(leg2.form, mode);
             withTimeout(window.supabaseClient.functions.invoke("save-flight", {
               body: {
                 mode,
@@ -933,7 +984,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill, onFamilyChang
           // can fill in a different actual route.
           const retFromCode = returnLeg.form.from ? placeCode(returnLeg.form.from) : toCode;
           const retToCode = returnLeg.form.to ? placeCode(returnLeg.form.to) : fromCode;
-          const { departAt: retDepartAt, arriveAt: retArriveAt } = buildDepartArrive(returnLeg.form.date, returnLeg.form.departTime, returnLeg.form.arriveTime, returnLeg.form.arriveNextDay);
+          const { departAt: retDepartAt, arriveAt: retArriveAt } = buildDepartArrive(returnLeg.form, mode, { from: retFromCode, to: retToCode });
           withTimeout(window.supabaseClient.functions.invoke("save-flight", {
             body: {
               mode,
@@ -1046,10 +1097,10 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill, onFamilyChang
   // rather than assuming the form fields are in chronological order.
   let connectionWarning = null;
   if (addingConnection && form.to && form.from && leg2.form.from && leg2.form.to && form.date && form.departTime && leg2.form.date && leg2.form.departTime) {
-    const formDepart = new Date(`${form.date}T${form.departTime}:00Z`);
-    const formArrive = form.arriveTime ? new Date(`${form.date}T${form.arriveTime}:00Z`) : new Date(formDepart.getTime() + 2 * 60 * 60 * 1000);
-    const leg2Depart = new Date(`${leg2.form.date}T${leg2.form.departTime}:00Z`);
-    const leg2Arrive = leg2.form.arriveTime ? new Date(`${leg2.form.date}T${leg2.form.arriveTime}:00Z`) : new Date(leg2Depart.getTime() + 2 * 60 * 60 * 1000);
+    // Same arrival-day handling as the save itself — this used to ignore the
+    // arrival day entirely, so an overnight first leg read as a negative gap.
+    const { departAt: formDepart, arriveAt: formArrive } = buildDepartArrive(form, mode);
+    const { departAt: leg2Depart, arriveAt: leg2Arrive } = buildDepartArrive(leg2.form, mode);
     const formIsEarlier = formDepart <= leg2Depart;
     const earlierTo = placeCode(formIsEarlier ? form.to : leg2.form.to).toUpperCase();
     const laterFrom = placeCode(formIsEarlier ? leg2.form.from : form.from).toUpperCase();
@@ -1253,18 +1304,15 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill, onFamilyChang
               <input type="time" value={form.arriveTime} onChange={(e) => setForm({ ...form, arriveTime: e.target.value })} />
             </label>
           </div>
-          <label className="at__checkbox at__checkbox--tight">
-            <input type="checkbox" checked={form.arriveNextDay} onChange={(e) => setForm({ ...form, arriveNextDay: e.target.checked })} />
-            <span>
-              Arrives the next day
-              {/* Claude already reads this off the ticket when it can (see
-                  arrives_next_day, parse-flight) — this just says so, so
-                  nobody feels obligated to double-check a box that's
-                  already been set correctly. Still editable in case it
-                  guessed wrong. */}
-              {(uploadParsed || textParsed)?.arrives_next_day != null && <span className="at__auto-note"> (detected from your ticket)</span>}
-            </span>
-          </label>
+          {/* Claude already reads the arrival day off the ticket when it can
+              (see arrive_day_offset, parse-flight) — the note just says so,
+              so nobody feels obligated to double-check it. Still editable in
+              case it guessed wrong. */}
+          <ArriveDayField
+            form={form} mode={mode}
+            detected={parsedDayOffset(uploadParsed || textParsed) != null}
+            onChange={(n) => setForm({ ...form, arriveDayOffset: n })}
+          />
           <div className="at__hint">Local time at departure/arrival — enter exactly what's printed on the ticket.</div>
 
           {!editing && !addingConnection && (
@@ -1276,7 +1324,8 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill, onFamilyChang
           {roundTrip && !editing && (
             <>
               <LegFields
-                leg={returnLeg} idPrefix="at-return" title="Return leg" isFlight={mode === "flight"}
+                leg={returnLeg} idPrefix="at-return" title="Return leg" isFlight={mode === "flight"} mode={mode}
+                fallbackRoute={{ from: form.to ? placeCode(form.to) : undefined, to: form.from ? placeCode(form.from) : undefined }}
                 fromPlaceholder={form.to ? `Usually ${form.to}` : undefined} fromOptional
                 toPlaceholder={form.from ? `Usually ${form.from}` : undefined} toOptional
                 pasteExample={`United UA935, LHR to SFO, Sat May 30, depart 1:15pm arrive 4:50pm`}
@@ -1294,7 +1343,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill, onFamilyChang
           {addingConnection && !editing && (
             <>
               <LegFields
-                leg={leg2} idPrefix="at-leg2" title="Connecting leg" isFlight
+                leg={leg2} idPrefix="at-leg2" title="Connecting leg" isFlight mode="flight"
                 fromPlaceholder={form.to ? `Usually ${form.to}` : "New York"}
                 toPlaceholder="London"
                 pasteExample={`United UA934, JFK to LHR, Sat May 23, depart 11:40pm arrive 11:55am`}

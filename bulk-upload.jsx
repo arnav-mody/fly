@@ -60,7 +60,7 @@ function formFromParsed(p) {
     date: p.date || "",
     departTime: p.depart_time || "",
     arriveTime: p.arrive_time || "",
-    arriveNextDay: !!p.arrives_next_day,
+    arriveDayOffset: parsedDayOffset(p) ?? 0,
     note: "",
   };
 }
@@ -173,13 +173,11 @@ function BulkTripFields({ card, onChange, onToggleTraveler }) {
           <input type="time" value={f.arriveTime} onChange={(e) => onChange({ arriveTime: e.target.value })} />
         </label>
       </div>
-      <label className="at__checkbox at__checkbox--tight">
-        <input type="checkbox" checked={f.arriveNextDay} onChange={(e) => onChange({ arriveNextDay: e.target.checked })} />
-        <span>
-          Arrives the next day
-          {card.parsed?.arrives_next_day != null && <span className="at__auto-note"> (detected from your ticket)</span>}
-        </span>
-      </label>
+      <ArriveDayField
+        form={f} mode="flight"
+        detected={parsedDayOffset(card.parsed) != null}
+        onChange={(n) => onChange({ arriveDayOffset: n })}
+      />
 
       <div className="at__field at__field--full">
         <span>Who's traveling?</span>
@@ -297,7 +295,7 @@ function BulkUploadModal({ open, onClose, onSubmit }) {
       return;
     }
     setCards((prev) => prev.map((c) => c.id === id ? { ...c, saving: true, saveError: null } : c));
-    const { departAt, arriveAt } = buildDepartArrive(f.date, f.departTime, f.arriveTime, f.arriveNextDay);
+    const { departAt, arriveAt } = buildDepartArrive(f, "flight");
     const body = {
       flightId: active.savedFlightId || undefined,
       mode: "flight",

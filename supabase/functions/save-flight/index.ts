@@ -91,6 +91,16 @@ Deno.serve(async (req) => {
     }
     if (!depart_at || isNaN(Date.parse(depart_at))) errors.push("departure date/time is invalid");
     if (!arrive_at || isNaN(Date.parse(arrive_at))) errors.push("arrival date/time is invalid");
+    // Times are stored as each airport's local clock, so arrival can read
+    // earlier than departure on a westbound flight — but never by more than
+    // the widest gap between two time zones (26h), and no single leg runs
+    // past 72h (a multi-day drive). Outside that window the times can't
+    // describe a real trip. The browser checks this precisely per time zone
+    // before saving; this is the backstop for anything that skips it.
+    const naiveGapH = (Date.parse(arrive_at) - Date.parse(depart_at)) / 3_600_000;
+    if (Number.isFinite(naiveGapH) && (naiveGapH < -26 || naiveGapH > 98)) {
+      errors.push("arrival time can't be right for this departure — check the arrival day");
+    }
     if (!Array.isArray(travelerIds) || travelerIds.length === 0) errors.push("at least one traveler is required");
     if (errors.length) return json({ ok: false, error: errors.join("; ") }, 400);
 

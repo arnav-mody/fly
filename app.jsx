@@ -131,11 +131,15 @@ function App() {
       const s = flightStatus(f, now);
       buckets[s].push(f);
     }
-    buckets.airborne.sort((a, b) => a.arrive - b.arrive);
-    buckets.boarding.sort((a, b) => a.depart - b.depart);
-    buckets.scheduled.sort((a, b) => a.depart - b.depart);
-    buckets.landed.sort((a, b) => b.arrive - a.arrive); // most recent first
-    buckets.past.sort((a, b) => b.depart - a.depart);
+    // Real instants, not the stored airport-local digits — two flights from
+    // different time zones sort wrong otherwise, and boarding[0] is what the
+    // "Next departure" hero features.
+    const dep = flightRealDepart, arr = flightRealArrive;
+    buckets.airborne.sort((a, b) => arr(a) - arr(b));
+    buckets.boarding.sort((a, b) => dep(a) - dep(b));
+    buckets.scheduled.sort((a, b) => dep(a) - dep(b));
+    buckets.landed.sort((a, b) => arr(b) - arr(a)); // most recent first
+    buckets.past.sort((a, b) => dep(b) - dep(a));
     return buckets;
   }, [soloFlights, now]);
 
@@ -148,10 +152,12 @@ function App() {
       if (s === "layover") s = "boarding";
       if (buckets[s]) buckets[s].push(item);
     }
-    buckets.airborne.sort((a, b) => a.summary.arrive - b.summary.arrive);
-    buckets.boarding.sort((a, b) => a.summary.depart - b.summary.depart);
-    buckets.scheduled.sort((a, b) => a.summary.depart - b.summary.depart);
-    buckets.landed.sort((a, b) => b.summary.arrive - a.summary.arrive);
+    const dep = (item) => flightRealDepart(item.legs[0]);
+    const arr = (item) => flightRealArrive(item.legs[item.legs.length - 1]);
+    buckets.airborne.sort((a, b) => arr(a) - arr(b));
+    buckets.boarding.sort((a, b) => dep(a) - dep(b));
+    buckets.scheduled.sort((a, b) => dep(a) - dep(b));
+    buckets.landed.sort((a, b) => arr(b) - arr(a));
     return buckets;
   }, [journeyItems, now]);
 

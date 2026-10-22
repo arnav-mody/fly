@@ -59,16 +59,18 @@ function buildFlightTool(today: string) {
           type: ["string", "null"],
           description: "Local arrival time as 24-hour HH:MM, ONLY if explicitly printed — never calculate or guess this.",
         },
-        arrives_next_day: {
-          type: ["boolean", "null"],
+        arrive_day_offset: {
+          type: ["integer", "null"],
+          minimum: -1,
+          maximum: 3,
           description:
-            "True if the arrival is on the calendar day AFTER the departure date — either an explicit " +
-            "'+1' / next-day marker printed next to the arrival time, or an arrival date printed separately " +
-            "from the departure date, or the flight is a long-haul route where the arrival clock time " +
-            "being earlier than the departure clock time only makes sense if it lands the next day (e.g. " +
-            "an evening departure with a morning arrival time on what would otherwise read as the same " +
-            "day). False if arrival is clearly the same calendar day. Null if you can't tell either way — " +
-            "never guess.",
+            "How many calendar days after the departure date the arrival lands, in local time at each " +
+            "airport: 0 = same day, 1 = next day ('+1'), 2 = two days later ('+2' — common on long " +
+            "one-stop itineraries like New York to Mumbai), -1 = the previous calendar day (westbound " +
+            "across the date line). Read it from a printed '+1'/'+2' marker or a separately printed " +
+            "arrival date. If neither is printed, only answer when the route makes it unambiguous (an " +
+            "evening long-haul departure with a morning arrival time can't be the same day). Null if " +
+            "you can't tell — never guess.",
         },
         low_confidence_fields: {
           type: "array",
@@ -135,7 +137,19 @@ Deno.serve(async (req) => {
     const toolUse = (aiData.content ?? []).find((b: { type: string }) => b.type === "tool_use");
     if (!toolUse) return json({ ok: false, error: "AI didn't return structured data" }, 502);
 
-    return json({ ok: true, parsed: toolUse.input });
+    // Tool-use output isn't strictly schema-validated: clamp the day offset to
+    // what the form can show, and keep emitting the old arrives_next_day
+    // boolean so a browser still running the previous page build keeps
+    // working until it reloads.
+    const parsed = { ...toolUse.input };
+    const offset = Number.isInteger(parsed.arrive_day_offset) ? parsed.arrive_day_offset : null;
+    parsed.arrive_day_offset = offset == null ? null : Math.max(-1, Math.min(3, offset));
+    parsed.arrives_next_day = parsed.arrive_day_offset == null ? null : parsed.arrive_day_offset >= 1;
+    // Seen in practice: Claude naming the field arrival_time instead of
+    // the schema's arrive_time.
+    if (!parsed.arrive_time && parsed.arrival_time) parsed.arrive_time = parsed.arrival_time;
+
+    return json({ ok: true, parsed });
   } catch (err) {
     return json({ ok: false, error: String((err as Error)?.message ?? err) }, 500);
   }

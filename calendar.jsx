@@ -64,7 +64,10 @@ function buildAgenda(cursor, flights) {
 
 // ── CalendarView ────────────────────────────────────────────────────────────
 function CalendarView({ flights, now, onOpen, filterIds = [] }) {
-  const [cursor, setCursor] = React.useState(() => startOfMonth(now));
+  // The viewer's own calendar day, not now's UTC date — that one rolls over
+  // at 8pm Eastern, highlighting tomorrow as "Today" every evening.
+  const today = window.MGData.viewerToday(now);
+  const [cursor, setCursor] = React.useState(() => startOfMonth(today));
 
   const visibleFlights = React.useMemo(
     () => filterIds.length ? flights.filter((f) => f.travelers.some((id) => filterIds.includes(id))) : flights,
@@ -73,7 +76,7 @@ function CalendarView({ flights, now, onOpen, filterIds = [] }) {
   const agenda = React.useMemo(() => buildAgenda(cursor, visibleFlights), [cursor, visibleFlights]);
 
   const monthLabel = cursor.toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
-  const isThisMonth = cursor.getUTCMonth() === now.getUTCMonth() && cursor.getUTCFullYear() === now.getUTCFullYear();
+  const isThisMonth = cursor.getUTCMonth() === today.getUTCMonth() && cursor.getUTCFullYear() === today.getUTCFullYear();
 
   // Ref to the "today" row so we can scroll there when entering the view.
   const todayRef = React.useRef(null);
@@ -90,7 +93,7 @@ function CalendarView({ flights, now, onOpen, filterIds = [] }) {
           <button className="cal__nav-btn" onClick={() => setCursor(addMonths(cursor, -1))} aria-label="Previous month">‹</button>
           <span className="cal__nav-label">{monthLabel}</span>
           <button className="cal__nav-btn" onClick={() => setCursor(addMonths(cursor, 1))} aria-label="Next month">›</button>
-          <button className="cal__today" onClick={() => setCursor(startOfMonth(now))}>Today</button>
+          <button className="cal__today" onClick={() => setCursor(startOfMonth(today))}>Today</button>
         </div>
       </div>
 
@@ -102,10 +105,10 @@ function CalendarView({ flights, now, onOpen, filterIds = [] }) {
           <DayRow
             key={day.date.toISOString()}
             day={day}
-            now={now}
-            isToday={sameUTCDay(day.date, now)}
+            today={today}
+            isToday={sameUTCDay(day.date, today)}
             onOpen={onOpen}
-            innerRef={isThisMonth && sameUTCDay(day.date, now) ? todayRef : null}
+            innerRef={isThisMonth && sameUTCDay(day.date, today) ? todayRef : null}
           />
         ))}
       </div>
@@ -115,10 +118,10 @@ function CalendarView({ flights, now, onOpen, filterIds = [] }) {
 
 // ── DayRow ──────────────────────────────────────────────────────────────────
 // One day's worth of agenda lines. Plain text, large enough for older eyes.
-function DayRow({ day, now, isToday, onOpen, innerRef }) {
+function DayRow({ day, today, isToday, onOpen, innerRef }) {
   const weekday = day.date.toLocaleString("en-US", { weekday: "long", timeZone: "UTC" });
   const monthDay = day.date.toLocaleString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
-  const past = day.date.getTime() < Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const past = day.date.getTime() < today.getTime();
 
   return (
     <div className={`dayrow ${isToday ? "dayrow--today" : ""} ${past ? "dayrow--past" : ""}`} ref={innerRef}>
