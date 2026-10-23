@@ -170,10 +170,13 @@ Deno.serve(async (req) => {
       }
       let profileId: string | null = null;
       if (body.profileId) {
-        const { data: target } = await supabase.from("family_members").select("id, user_id, is_guest").eq("id", body.profileId).maybeSingle();
+        const { data: target } = await supabase.from("family_members").select("id, user_id, is_guest, created_by").eq("id", body.profileId).maybeSingle();
         if (!target || target.is_guest) return json({ ok: false, error: "Couldn't find that person." }, 404);
         if (target.user_id) return json({ ok: false, error: "They've already signed in — follow them instead." }, 409);
-        if (!(await canManage(supabase, me, target.id))) return json({ ok: false, error: "You can only invite people whose close circle you're in." }, 403);
+        // Whoever added the profile, or manages that person's trips.
+        if (target.created_by !== me && !(await canManage(supabase, me, target.id))) {
+          return json({ ok: false, error: "You can only invite someone to a profile you added or whose trips you manage." }, 403);
+        }
         profileId = target.id;
       }
       const token = newToken();

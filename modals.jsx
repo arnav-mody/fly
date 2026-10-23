@@ -688,6 +688,14 @@ function AddPersonModal({ open, onClose, onCreated, allowGuest = false }) {
   }, [open]);
 
   const isGuest = allowGuest && choice === "guest";
+  // Whether the person adding them will manage their trips — which means
+  // seeing their flight details (see save-person). Always an explicit
+  // choice: from the People tab nothing is picked until someone picks; from a
+  // trip's traveler picker it's the only way to put them on that trip, so the
+  // form states it rather than asking.
+  const [manageChoice, setManageChoice] = React.useState(allowGuest ? "manage" : null);
+  React.useEffect(() => { if (open) setManageChoice(allowGuest ? "manage" : null); }, [open, allowGuest]);
+  const firstShown = firstName.trim() || "them";
   // `saving` disables the button, but only after the next render — a fast
   // double-tap lands both taps before that, and that's how the roster ended
   // up with two Harsh Kapadias four seconds apart. A ref flips immediately.
@@ -699,6 +707,10 @@ function AddPersonModal({ open, onClose, onCreated, allowGuest = false }) {
       setError("A first and last name are both needed.");
       return;
     }
+    if (!isGuest && !manageChoice) {
+      setError("Choose whether you'll add their trips or they will.");
+      return;
+    }
     inFlight.current = true;
     setSaving(true);
     setError(null);
@@ -708,6 +720,7 @@ function AddPersonModal({ open, onClose, onCreated, allowGuest = false }) {
         lastName: lastName.trim(),
         isGuest,
         homeAirport: !isGuest && homeCity ? placeCode(homeCity) : undefined,
+        manage: !isGuest && manageChoice === "manage",
       },
     }), 15000, "Adding").then(async ({ data, error: err }) => {
       inFlight.current = false;
@@ -765,6 +778,32 @@ function AddPersonModal({ open, onClose, onCreated, allowGuest = false }) {
               <span>Home city (optional)</span>
               <input list="ap-airport-list" value={homeCity} onChange={(e) => setHomeCity(e.target.value)} placeholder="City or airport" />
             </label>
+          )}
+          {!isGuest && allowGuest && (
+            <div className="at__hint ap__manage-note">
+              You'll be able to see {firstShown === "them" ? "their" : `${firstShown}'s`} flight details and add or change their trips — that's what lets you put them on this trip. When they sign in, they can turn this off.
+            </div>
+          )}
+          {!isGuest && !allowGuest && (
+            <div className="at__field at__field--full">
+              <span>Who adds {firstShown === "them" ? "their" : `${firstShown}'s`} trips?</span>
+              <div className="ap__choices" role="radiogroup">
+                <label className={`ap__choice ${manageChoice === "manage" ? "on" : ""}`}>
+                  <input type="radio" name="ap-manage" checked={manageChoice === "manage"} onChange={() => setManageChoice("manage")} />
+                  <span>
+                    <strong>I'll add trips for {firstShown}</strong>
+                    <span className="ap__choice-sub">You'll see their flight details and can add or change their trips — good for grandparents and kids. They can turn this off when they sign in.</span>
+                  </span>
+                </label>
+                <label className={`ap__choice ${manageChoice === "self" ? "on" : ""}`}>
+                  <input type="radio" name="ap-manage" checked={manageChoice === "self"} onChange={() => setManageChoice("self")} />
+                  <span>
+                    <strong>{firstShown === "them" ? "They'll" : `${firstShown} will`} add their own</strong>
+                    <span className="ap__choice-sub">Nothing is shared either way until they join. You can invite them next.</span>
+                  </span>
+                </label>
+              </div>
+            </div>
           )}
           <datalist id="ap-airport-list">
             {Object.entries(_AP).map(([code, a]) => (

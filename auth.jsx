@@ -48,15 +48,26 @@ function AuthGate({ children }) {
   const [onboardInfo, setOnboardInfo] = React.useState(null);
   const [error, setError] = React.useState(null);
   const onboarding = React.useRef(false);
+  // The account the current MG_ME belongs to. A session for any other
+  // account means start over — never keep showing the previous person's
+  // board or acting as them.
+  const userRef = React.useRef(null);
 
   const onboard = React.useCallback(async (names) => {
     if (onboarding.current) return;
     onboarding.current = true;
     setError(null);
     try {
+      const { data: s } = await window.supabaseClient.auth.getSession();
       const res = await callSocial({ action: "onboard", inviteToken: inviteToken || undefined, ...(names || {}) });
       if (res.needsName) { setOnboardInfo(res); setPhase("needsName"); return; }
       window.MG_ME = res.profileId;
+      userRef.current = s.session?.user?.id ?? null;
+      // Took over a profile someone else set up: show who has access (see
+      // ClaimNotice in people.jsx).
+      if (res.claimedVia === "invite" || res.claimedVia === "email") {
+        try { sessionStorage.setItem("mg_claim_notice", "1"); } catch (e) {}
+      }
       clearInviteToken();
       setOnboardInfo(res);
       setPhase("ready");
@@ -82,11 +93,23 @@ function AuthGate({ children }) {
       if (event === "SIGNED_OUT") {
         // Nothing of the previous person's people survives into the next sign-in.
         window.MG_ME = null;
+        userRef.current = null;
         window.MGData.FAMILY.splice(0);
         setPhase("signedOut");
         return;
       }
-      if (session && !window.MG_ME) { setPhase((p) => (p === "ready" || p === "needsName" ? p : "onboarding")); onboard(); }
+      if (!session) return;
+      if (window.MG_ME && userRef.current && session.user.id !== userRef.current) {
+        // A different account arrived without a sign-out in between: unmount
+        // the board (phase leaves "ready") and onboard as the new person.
+        window.MG_ME = null;
+        userRef.current = null;
+        window.MGData.FAMILY.splice(0);
+        setPhase("onboarding");
+        onboard();
+        return;
+      }
+      if (!window.MG_ME) { setPhase((p) => (p === "ready" || p === "needsName" ? p : "onboarding")); onboard(); }
     });
     return () => { alive = false; sub.subscription.unsubscribe(); };
   }, [onboard]);

@@ -2,12 +2,18 @@
 //
 // Adds a new person to family_members on someone else's behalf — a relative
 // who doesn't use the app (yet), a friend, or a one-trip guest (see
-// is_guest, schema.sql). Called from the Travelers tab ("+ Add someone",
-// always a full profile) and the add-trip traveler picker (a full profile or
-// a guest). The account adding them goes into the new profile's close circle
-// so they can see and manage that person's trips; when the person later signs
-// in and claims the profile, they can change that.
-// (A new account naming itself goes through social's onboarding instead.)
+// is_guest, schema.sql). Called from the People tab ("+ Add someone", always
+// a full profile) and the add-trip traveler picker (a full profile or a
+// guest).
+//
+// `manage: true` — an explicit choice in the form, never a default the
+// server assumes — puts the account adding them into the new profile's close
+// circle: they can then see that person's flight details and add or change
+// their trips (what you need when entering trips for a grandparent or a
+// child). It never shows the new person the adder's own details. When the
+// person later signs in, the People tab shows who has that access and lets
+// them turn it off. (A new account naming itself goes through social's
+// onboarding instead.)
 
 import { adminClient, CORS_HEADERS, json, requireProfile } from "../_shared/viewer.ts";
 import { createProfile, IATA3, validateName } from "../_shared/profiles.ts";
@@ -21,7 +27,7 @@ Deno.serve(async (req) => {
     if (auth.error) return auth.error;
     const me = auth.viewer.profileId;
 
-    const { firstName, lastName, isGuest, homeAirport } = await req.json();
+    const { firstName, lastName, isGuest, homeAirport, manage } = await req.json();
     const first = String(firstName ?? "").trim();
     const last = String(lastName ?? "").trim();
     const guest = isGuest === true;
@@ -46,7 +52,7 @@ Deno.serve(async (req) => {
     const { data: person, error } = await createProfile(supabase, { first, last, guest, homeAirport: code, createdBy: me });
     if (error) return json({ ok: false, error: error.message }, 500);
 
-    if (!guest) {
+    if (!guest && manage === true) {
       const { error: circleErr } = await supabase.from("close_circle").insert({ owner_id: person.id, member_id: me });
       if (circleErr) return json({ ok: false, error: `Added, but couldn't link them to you: ${circleErr.message}` }, 500);
     }

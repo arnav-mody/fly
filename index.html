@@ -1286,6 +1286,24 @@
     }
     .pp__btn:hover { background: var(--paper-deeper); }
     .bp-strip--limited { display: block; font-size: 0.8rem; color: var(--ink-faint); font-style: italic; }
+    .pp__claim {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+      padding: 14px 16px; margin-bottom: 18px; border-radius: 14px; font-size: 0.9rem; line-height: 1.45;
+      background: color-mix(in oklab, var(--sage) 14%, var(--paper-soft)); border: 0.5px solid var(--paper-line);
+    }
+    .pp__claim-actions { display: flex; gap: 8px; }
+    /* Add someone: who manages their trips — an explicit choice. */
+    .ap__choices { display: flex; flex-direction: column; gap: 8px; }
+    .ap__choice {
+      display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; cursor: pointer;
+      border: 0.5px solid var(--paper-line); background: var(--paper-soft); text-transform: none; letter-spacing: 0;
+      font-family: inherit; font-size: 0.9rem; color: var(--ink);
+    }
+    .ap__choice.on { border-color: var(--ink); background: var(--paper); }
+    .ap__choice input { margin-top: 3px; accent-color: var(--accent); }
+    .ap__choice > span { display: flex; flex-direction: column; gap: 2px; }
+    .ap__choice-sub { font-size: 0.8rem; color: var(--ink-soft); line-height: 1.4; }
+    .ap__manage-note { margin-top: 0; }
 
     .auth__test {
       position: fixed; left: 12px; bottom: 12px; z-index: 300;

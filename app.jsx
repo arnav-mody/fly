@@ -100,7 +100,7 @@ function App() {
             claimed: !!row.claimed, isMe: !!row.is_me,
             iFollow: row.i_follow || null, followsMe: row.follows_me || null,
             inMyCircle: !!row.in_my_circle, inTheirCircle: !!row.in_their_circle,
-            canManage: !!row.can_manage,
+            canManage: !!row.can_manage, addedByMe: !!row.added_by_me,
           };
           const existing = familyById(row.id);
           next.push(existing ? Object.assign(existing, fields) : { id: row.id, photo: null, ...fields });
@@ -219,6 +219,7 @@ function App() {
       />
 
       <main className="main">
+        {view === "board" && <ClaimNotice onReview={() => setView("travelers")} />}
         {view === "board" && (
           <Board
             buckets={{
@@ -779,7 +780,11 @@ function TravelersView({ allFlights, now, onSelectPerson, onFamilyChanged }) {
       <AddPersonModal
         open={addPersonOpen}
         onClose={() => setAddPersonOpen(false)}
-        onCreated={() => onFamilyChanged()}
+        onCreated={(person) => {
+          onFamilyChanged();
+          // Straight on to inviting them — the profile is waiting for them.
+          if (person && !person.is_guest) openInvite({ id: person.id, first: person.first_name, last: person.last_name });
+        }}
       />
       <InviteModal open={inviteOpen} profile={inviteFor} onClose={() => { setInviteOpen(false); onFamilyChanged(); }} />
     </div>

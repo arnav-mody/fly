@@ -38,13 +38,14 @@ function relationLabel(p) {
 // anyone, or the viewer's reusable follow link.
 function InviteModal({ open, onClose, profile }) {
   const me = window.MGData.familyById(window.MG_ME);
-  const [closeCircle, setCloseCircle] = React.useState(!!profile);
+  // Sharing your flight details is always opted into, never the default.
+  const [closeCircle, setCloseCircle] = React.useState(false);
   const [busy, setBusy] = React.useState(null); // "personal" | "link" | null
   const [result, setResult] = React.useState(null); // { url, outcome, kind }
   const [error, setError] = React.useState(null);
 
   React.useEffect(() => {
-    if (open) { setCloseCircle(!!profile); setResult(null); setError(null); setBusy(null); }
+    if (open) { setCloseCircle(false); setResult(null); setError(null); setBusy(null); }
   }, [open, profile]);
 
   const make = async (kind) => {
@@ -167,7 +168,7 @@ function RelationControls({ p, onInvite, onChanged }) {
             <span>Sees my flight details</span>
           </label>
         )}
-        {!p.claimed && p.canManage && <button className="pp__btn" onClick={() => onInvite(p)}>Invite to Fly</button>}
+        {!p.claimed && (p.canManage || p.addedByMe) && <button className="pp__btn" onClick={() => onInvite(p)}>Invite to Fly</button>}
         {p.claimed && !p.iFollow && <button className="pp__btn" disabled={busy} onClick={() => act({ action: "request-follow", profileId: p.id })}>Ask to follow</button>}
       </div>
       {error && <div className="at__error">{error}</div>}
@@ -175,4 +176,29 @@ function RelationControls({ p, onInvite, onChanged }) {
   );
 }
 
-Object.assign(window, { InviteModal, FollowRequests, RelationControls, relationLabel });
+// ── After taking over a profile someone else set up ────────────────────────
+// Grandma signing in to the profile the family made for her should be told
+// who already sees her flight details and can add trips for her — once, with
+// a way to review it — rather than discover it later.
+const CLAIM_NOTICE_KEY = "mg_claim_notice";
+function ClaimNotice({ onReview }) {
+  const [show, setShow] = React.useState(() => { try { return sessionStorage.getItem(CLAIM_NOTICE_KEY) === "1"; } catch (e) { return false; } });
+  const managers = window.MGData.FAMILY.filter((p) => p.inMyCircle && !p.isMe);
+  if (!show || !managers.length) return null;
+  const dismiss = () => { try { sessionStorage.removeItem(CLAIM_NOTICE_KEY); } catch (e) {} setShow(false); };
+  const names = managers.map((p) => p.first);
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return (
+    <div className="pp__claim">
+      <div>
+        <strong>Welcome — your profile was already set up.</strong> {list} {names.length === 1 ? "can" : "can each"} see your flight details and add trips for you.
+      </div>
+      <div className="pp__claim-actions">
+        <button className="pp__btn" onClick={() => { dismiss(); onReview(); }}>Review on People</button>
+        <button className="pp__btn" onClick={dismiss}>That's fine</button>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { InviteModal, FollowRequests, RelationControls, relationLabel, ClaimNotice, CLAIM_NOTICE_KEY });

@@ -402,3 +402,40 @@ grant execute on function can_manage(text, text) to service_role;
 -- A personal invite can also put the invitee in the inviter's close circle
 -- (full flight details) — the usual choice when inviting family.
 alter table invites add column if not exists close_circle boolean not null default false;
+
+-- get_people() also says whether the viewer added each person — so someone
+-- you added (but chose not to manage) can still be invited to their profile.
+-- Changing a function's columns needs a drop first.
+drop function if exists get_people();
+create or replace function get_people()
+returns table (
+  id text, first_name text, last_name text, nickname text, role text,
+  home_city text, home_airport text, tone int, is_guest boolean, claimed boolean,
+  is_me boolean, i_follow text, follows_me text, in_my_circle boolean, in_their_circle boolean,
+  can_manage boolean, added_by_me boolean
+)
+language sql stable security definer set search_path = public as $$
+  with me as (select my_profile_id() as id),
+  related as (
+    select me.id as pid from me where me.id is not null
+    union select fo.followee_id from follows fo, me where fo.follower_id = me.id
+    union select fo.follower_id from follows fo, me where fo.followee_id = me.id
+    union select c.member_id from close_circle c, me where c.owner_id = me.id
+    union select c.owner_id from close_circle c, me where c.member_id = me.id
+    union select m.id from family_members m, me where m.created_by = me.id
+    union select unnest(b.travelers) from get_board() b
+  )
+  select m.id, m.first_name, m.last_name, m.nickname, m.role, m.home_city, m.home_airport, m.tone,
+    m.is_guest, m.user_id is not null,
+    m.id = me.id,
+    (select fo.status from follows fo where fo.follower_id = me.id and fo.followee_id = m.id),
+    (select fo.status from follows fo where fo.follower_id = m.id and fo.followee_id = me.id),
+    exists (select 1 from close_circle c where c.owner_id = me.id and c.member_id = m.id),
+    exists (select 1 from close_circle c where c.owner_id = m.id and c.member_id = me.id),
+    can_manage(me.id, m.id),
+    m.created_by is not null and m.created_by = me.id
+  from family_members m cross join me
+  where me.id is not null and m.id in (select pid from related)
+$$;
+revoke all on function get_people() from public, anon;
+grant execute on function get_people() to authenticated;
