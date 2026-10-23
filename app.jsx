@@ -587,6 +587,7 @@ function TravelersView({ allFlights, now, onSelectPerson, onFamilyChanged }) {
   const [addPersonOpen, setAddPersonOpen] = React.useState(false);
   const [inviteOpen, setInviteOpen] = React.useState(false);
   const [inviteFor, setInviteFor] = React.useState(null); // a not-yet-joined profile, or null for anyone
+  const [passwordOpen, setPasswordOpen] = React.useState(false);
 
   // Guests (added just for one trip — see is_guest, schema.sql) don't belong
   // on the general roster, and someone whose only link to the viewer is a
@@ -689,8 +690,12 @@ function TravelersView({ allFlights, now, onSelectPerson, onFamilyChanged }) {
       <SectionHead kicker="Your people" title="Who you're connected to" sub="Tap a face to see only their trips on the board. Your close circle sees your flight details; everyone else who follows you sees dates and cities." />
       <div className="pp__actions">
         <button className="cta__btn" onClick={() => openInvite(null)}>＋ Invite someone</button>
-        <button className="pp__signout" onClick={() => window.supabaseClient.auth.signOut()}>Sign out</button>
+        <div className="pp__account">
+          <button className="pp__signout" onClick={() => setPasswordOpen(true)}>Set a password</button>
+          <button className="pp__signout" onClick={() => window.supabaseClient.auth.signOut()}>Sign out</button>
+        </div>
       </div>
+      <PasswordModal open={passwordOpen} onClose={() => setPasswordOpen(false)} />
       <FollowRequests people={FAMILY} onChanged={() => { onFamilyChanged(); }} />
       {photoError && <div className="travelers__error">{photoError}</div>}
       <div className="travelers__grid">

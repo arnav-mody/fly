@@ -1249,6 +1249,20 @@
       text-decoration: underline; text-underline-offset: 3px;
     }
     .auth__row .auth__link { margin-top: 0; }
+    .auth__card .gate__btn + .auth__link { margin-top: 12px; }
+    .auth__google {
+      width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+      padding: 12px 22px; border-radius: 999px; border: 0.5px solid var(--paper-line);
+      background: white; color: #1f1f1f; font: inherit; font-weight: 600; font-size: 0.95rem; cursor: pointer;
+    }
+    .auth__google:hover { background: #f6f6f6; }
+    .auth__or {
+      width: 100%; display: flex; align-items: center; gap: 10px; margin: 14px 0;
+      font-size: 0.78rem; color: var(--ink-faint);
+    }
+    .auth__or::before, .auth__or::after { content: ""; flex: 1; height: 0.5px; background: var(--paper-line); }
+    .auth__card input[type="password"] { letter-spacing: 0.05em; }
+    .pp__account { display: flex; gap: 14px; }
     .auth__link:hover { color: var(--ink); }
     /* ── People tab: invites, requests, connections (people.jsx) ───────── */
     .pp__actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: -8px 0 4px; }

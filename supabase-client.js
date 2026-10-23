@@ -21,6 +21,9 @@ const MG_BACKENDS = {
 };
 const MG_LIVE_HOSTS = ["fly.arnavmody.com", "fly-orcin-tau.vercel.app"];
 window.MG_BACKEND = MG_LIVE_HOSTS.includes(location.hostname) ? "live" : "test";
+// The chosen backend's URL + publishable key, for the one public auth call
+// supabase-js doesn't wrap (which sign-in methods are on — see auth.jsx).
+window.MG_SUPABASE = MG_BACKENDS[window.MG_BACKEND];
 
 window.supabaseClient = supabase.createClient(
   MG_BACKENDS[window.MG_BACKEND].url,
