@@ -124,7 +124,11 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
   const from     = { ..._airport(firstLeg.from), code: firstLeg.from };
   const to       = { ..._airport(lastLeg.to),    code: lastLeg.to };
   const travelers = firstLeg.travelers.map(_familyById).filter(Boolean);
-  const noReturn = allFlights && !lastLeg.returnDismissed && !_hasLoggedReturn(lastLeg, allFlights) && !window.MGData.isHomeArrival(lastLeg);
+  // A trip the viewer only follows (limited: dates and cities) or can't
+  // manage shows no edit controls — the server would refuse them anyway.
+  const limited  = !!firstLeg.limited;
+  const canEdit  = !limited && travelers.some((p) => p.canManage);
+  const noReturn = canEdit && allFlights && !lastLeg.returnDismissed && !_hasLoggedReturn(lastLeg, allFlights) && !window.MGData.isHomeArrival(lastLeg);
   const airborneLeg = isJourney ? legs.find((l) => _flightStatus(l, now) === "airborne") : flight;
   // The leg currently underway during a layover — i.e. which gap in the
   // chain "now" falls into — so the detail panel can name the right city.
@@ -218,7 +222,7 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
           {status === "layover" && layoverIdx >= 0 && (
             <Countdown target={window.MGData.flightRealDepart(legs[layoverIdx + 1])} label={`On a layover in ${_airport(legs[layoverIdx].to).city} — next leg in`} now={now} />
           )}
-          {(status === "boarding" || status === "scheduled") && (
+          {(status === "boarding" || status === "scheduled") && !limited && (
             <Countdown target={window.MGData.flightRealDepart(firstLeg)} label={isFlight ? "Taking off in" : "Departs in"} now={now} />
           )}
           {status === "landed" && (
@@ -255,7 +259,7 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
                   Track live on FlightAware <span className="fa-link__arrow">↗</span>
                 </a>
               )}
-              {i < legs.length - 1 && (
+              {i < legs.length - 1 && !limited && (
                 <div className="fd__layover">
                   <span className="fd__layover-icon" aria-hidden="true">⏱</span>
                   Layover in {_airport(leg.to).city} — {fmtDuration(window.MGData.flightRealDepart(legs[i + 1]) - window.MGData.flightRealArrive(leg))}
@@ -292,7 +296,7 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
         </div>
 
         {/* Manage */}
-        <div className="fd__manage">
+        {canEdit && <div className="fd__manage">
           {deleteError && <div className="fd__manage-error">{deleteError}</div>}
           <div className="fd__manage-actions">
             {isJourney ? (
@@ -310,7 +314,7 @@ function FlightDetailModal({ flight, onClose, now, onEdit, onDeleted, allFlights
               {deleting ? <><span className="at__spinner" aria-hidden="true" /> Deleting…</> : "Delete trip"}
             </button>
           </div>
-        </div>
+        </div>}
       </div>
     </Modal>
   );
@@ -332,7 +336,9 @@ function matchTravelerByName(name) {
   if (!name) return null;
   const norm = String(name).trim().toLowerCase();
   if (!norm) return null;
-  const hit = _FAM.find((p) => {
+  // Only people this viewer may add trips for — a friend's name on a shared
+  // booking shouldn't get picked and then refused on save.
+  const hit = _FAM.filter((p) => p.canManage).find((p) => {
     const first = p.first.toLowerCase();
     const last = p.last.toLowerCase();
     const nick = (p.nick || "").toLowerCase();
@@ -1150,7 +1156,7 @@ function AddTripModal({ open, onClose, onSubmit, editing, prefill, onFamilyChang
   // schema.sql) — full members only, capped at 15 (5 rows of 3) until asked
   // to show more so the grid doesn't get unwieldy as the roster grows. A
   // selected guest still needs to be visible somewhere, hence the chip row.
-  const rosterOnly = _FAM.filter((p) => !p.isGuest);
+  const rosterOnly = _FAM.filter((p) => !p.isGuest && p.canManage);
   const visibleRoster = showAllTravelers ? rosterOnly : rosterOnly.slice(0, 15);
   const hiddenRosterCount = rosterOnly.length - visibleRoster.length;
   const selectedGuests = form.travelers.map((id) => _FAM.find((p) => p.id === id)).filter((p) => p && p.isGuest);

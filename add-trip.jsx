@@ -186,11 +186,15 @@ function groupJourneys(sorted) {
   return journeys;
 }
 
+// Last time's travelers (still people this viewer can add trips for), or
+// just the viewer themselves.
 function loadLastTravelers() {
+  let ids = [];
   try {
-    const ids = JSON.parse(localStorage.getItem(LAST_TRAVELERS_KEY) || "[]");
-    return Array.isArray(ids) ? ids.filter((id) => window.MGData.familyById(id)) : [];
-  } catch (e) { return []; }
+    const stored = JSON.parse(localStorage.getItem(LAST_TRAVELERS_KEY) || "[]");
+    if (Array.isArray(stored)) ids = stored.filter((id) => window.MGData.familyById(id)?.canManage);
+  } catch (e) {}
+  return ids.length ? ids : (window.MG_ME ? [window.MG_ME] : []);
 }
 function saveLastTravelers(ids) {
   try { localStorage.setItem(LAST_TRAVELERS_KEY, JSON.stringify(ids)); } catch (e) {}
@@ -468,7 +472,9 @@ function AddTripFlow({ open, onClose, onSubmit, prefill, allFlights, onFamilyCha
   };
 
   // ── render ────────────────────────────────────────────────────────────────
-  const roster = _FAM.filter((p) => !p.isGuest);
+  // Only people this viewer may add trips for (see can_manage, schema.sql),
+  // themselves first.
+  const roster = _FAM.filter((p) => !p.isGuest && p.canManage).sort((a, b) => (b.isMe ? 1 : 0) - (a.isMe ? 1 : 0));
   const visibleRoster = showAllTravelers ? roster : roster.slice(0, 15);
   const hiddenRosterCount = roster.length - visibleRoster.length;
   const selectedGuests = travelers.map((id) => _FAM.find((p) => p.id === id)).filter((p) => p && p.isGuest);

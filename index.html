@@ -1233,6 +1233,66 @@
       background: var(--accent); color: white; font-weight: 600; font-size: 0.95rem; cursor: pointer;
     }
     .gate__btn:hover { background: color-mix(in oklab, var(--accent) 85%, white); }
+    .gate__btn:disabled { opacity: 0.6; cursor: default; }
+
+    /* ── Sign-in (auth.jsx) — builds on the gate card above ─────────────── */
+    .auth__card { gap: 0; }
+    .auth__card .gate__input + .gate__input { margin-top: 10px; }
+    .auth__names { width: 100%; display: flex; flex-direction: column; }
+    .auth__code { font-family: var(--font-mono); font-size: 1.5rem; letter-spacing: 0.4em; }
+    .auth__sent { font-size: 0.88rem; color: var(--ink-soft); margin: 0 0 14px; line-height: 1.45; }
+    .auth__fine { font-size: 0.78rem; color: var(--ink-faint); margin: 14px 0 0; line-height: 1.45; }
+    .auth__row { display: flex; justify-content: space-between; width: 100%; margin-top: 14px; }
+    .auth__link {
+      appearance: none; border: 0; background: none; padding: 4px 0; margin-top: 10px;
+      font: inherit; font-size: 0.82rem; color: var(--ink-soft); cursor: pointer;
+      text-decoration: underline; text-underline-offset: 3px;
+    }
+    .auth__row .auth__link { margin-top: 0; }
+    .auth__link:hover { color: var(--ink); }
+    /* ── People tab: invites, requests, connections (people.jsx) ───────── */
+    .pp__actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: -8px 0 4px; }
+    .pp__signout {
+      appearance: none; border: 0; background: none; font: inherit; font-size: 0.85rem; color: var(--ink-soft);
+      text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+    }
+    .pp__intro { font-size: 0.88rem; color: var(--ink-soft); line-height: 1.45; margin: 0; }
+    .pp__link { margin-top: 8px; padding-top: 16px; border-top: 0.5px solid var(--paper-line); display: flex; flex-direction: column; gap: 8px; }
+    .pp__link-title { font-family: var(--font-serif); font-size: 1.1rem; }
+    .pp__link-btn { align-self: flex-start; border: 0.5px solid var(--paper-line); }
+    .pp__url {
+      display: block; width: 100%; margin-top: 8px; padding: 8px 10px; border-radius: 8px;
+      border: 0.5px solid var(--paper-line); background: var(--paper); font-family: var(--font-mono); font-size: 0.78rem; color: var(--ink);
+    }
+    .pp__requests {
+      display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: 16px;
+      background: color-mix(in oklab, var(--accent) 9%, var(--paper-soft)); border: 0.5px solid color-mix(in oklab, var(--accent) 30%, var(--paper-line));
+    }
+    .pp__requests-title { font-family: var(--font-serif); font-size: 1.1rem; }
+    .pp__request { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .pp__request-name { flex: 1; min-width: 140px; font-weight: 600; font-size: 0.92rem; }
+    .pp__request-sub { font-weight: 400; font-size: 0.8rem; color: var(--ink-soft); }
+    .pp__request .at__primary, .pp__request .at__secondary { padding: 8px 16px; font-size: 0.85rem; }
+    .pp__rel {
+      margin-top: 10px; padding-top: 10px; border-top: 0.5px solid var(--paper-line);
+      font-size: 0.78rem; color: var(--ink-soft); display: flex; flex-direction: column; gap: 6px; text-align: left;
+    }
+    .pp__rel-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .pp__switch { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: var(--ink); }
+    .pp__switch input { accent-color: var(--accent); width: 15px; height: 15px; }
+    .pp__btn {
+      appearance: none; border: 0.5px solid var(--paper-line); background: var(--paper); border-radius: 999px;
+      padding: 5px 12px; font: inherit; font-size: 0.78rem; color: var(--ink); cursor: pointer;
+    }
+    .pp__btn:hover { background: var(--paper-deeper); }
+    .bp-strip--limited { display: block; font-size: 0.8rem; color: var(--ink-faint); font-style: italic; }
+
+    .auth__test {
+      position: fixed; left: 12px; bottom: 12px; z-index: 300;
+      font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.12em;
+      padding: 4px 9px; border-radius: 999px; background: #1d4ed8; color: white;
+      box-shadow: var(--shadow-2); pointer-events: none;
+    }
 
     /* ── Footer ─────────────────────────────────────────────────────────── */
     .footer {
@@ -1390,6 +1450,8 @@
   <script type="text/babel" src="components.jsx"></script>
   <script type="text/babel" src="modals.jsx"></script>
   <script type="text/babel" src="add-trip.jsx"></script>
+  <script type="text/babel" src="auth.jsx"></script>
+  <script type="text/babel" src="people.jsx"></script>
   <script type="text/babel" src="calendar.jsx"></script>
   <!-- app last -->
   <script type="text/babel" src="app.jsx" data-presets="env,react"></script>

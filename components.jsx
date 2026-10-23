@@ -219,6 +219,11 @@ function FlightProgress({ flight, now }) {
 // The technical-detail row that appears on flight cards — flight #, time,
 // gate, seat — set in monospace so it reads like a real boarding pass.
 function BoardingPassStrip({ flight, dense = false }) {
+  // Followers who aren't in the traveler's close circle get the day and the
+  // cities, never the flight itself (see get_board in schema.sql).
+  if (flight.limited) {
+    return <div className={`bp-strip bp-strip--limited ${dense ? "bp-strip--dense" : ""}`}>Flight details are shared with their close circle</div>;
+  }
   const mode = modeOf(flight);
   const al = airline(flight.airline);
   const from = airport(flight.from);
@@ -348,8 +353,16 @@ function cardLead({ status, isFlight, travelers, now, depart, arrive, departReal
 // its own "Taking off soon" pill, so in practice the hours-included form
 // only shows in the 24–48h window. Shared so a journey's pill reads the
 // same way. `depart` should be the real instant (see cardLead above).
-function scheduledPillLabel(status, depart, now) {
+function scheduledPillLabel(status, depart, now, flight) {
   if (status !== "scheduled") return undefined;
+  // A limited (followers-only) trip has a day but no time — count calendar
+  // days on the viewer's own calendar instead of hours.
+  if (flight && flight.limited) {
+    const d = window.MGData.daysBetweenYmd(flight.depart.toISOString().slice(0, 10), window.MGData.viewerToday(now).toISOString().slice(0, 10));
+    if (d <= 0) return "Today";
+    if (d === 1) return "Tomorrow";
+    return `${d} days to go`;
+  }
   const totalHours = (depart - now) / (60 * 60 * 1000);
   const days = Math.floor(totalHours / 24);
   const hours = Math.floor(totalHours % 24);
@@ -371,16 +384,19 @@ function FlightCard({ flight, onOpen, now, accent, allFlights, onAddReturn, onLi
   // Worth flagging at any stage of the trip, not just after landing — and
   // never when everyone aboard is simply arriving home (see isHomeArrival)
   // or when someone's already said this one doesn't need a return logged.
-  const noReturn = allFlights && !flight.returnDismissed && !hasLoggedReturn(flight, allFlights) && !window.MGData.isHomeArrival(flight);
+  // Prompts that lead to editing only make sense for trips the viewer can
+  // edit — never for one they only follow (limited).
+  const editable = !flight.limited;
+  const noReturn = editable && allFlights && !flight.returnDismissed && !hasLoggedReturn(flight, allFlights) && !window.MGData.isHomeArrival(flight);
   // Two boarding passes logged separately that plausibly connect — offer to
   // link them into one journey card (the retroactive counterpart to ticking
   // "this is a connecting flight" during upload). Never offered once a
   // flight's already part of a journey.
-  const connection = allFlights && onLinkConnection && !flight.journeyId
+  const connection = editable && allFlights && onLinkConnection && !flight.journeyId
     ? window.MGData.findConnectionCandidate(flight, allFlights) : null;
   const connectionIsOnward = connection && window.MGData.isConnectionCandidate(flight, connection);
 
-  const pillLabel = scheduledPillLabel(status, flightRealDepart(flight), now);
+  const pillLabel = scheduledPillLabel(status, flightRealDepart(flight), now, flight);
   // Airborne is the one status where FlightProgress already shows the route,
   // both cities, and both times in one bar — the ordinary cities-row ribbon
   // + boarding-pass strip right under it would just repeat all of that.
@@ -501,9 +517,9 @@ function JourneyCard({ item, onOpen, now }) {
   const faLeg = airborneLeg || first;
   const faUrl = isFlight && flightRealDepart(faLeg) - now <= hours(48) ? flightAwareUrl(faLeg) : null;
 
-  const pillLabel = scheduledPillLabel(status, flightRealDepart(first), now);
-  const journeyFlight = { ...item.summary, id: item.id, legs, journeyId: item.id };
-  const stripFlight = { mode, airline: item.summary.airline, number: item.summary.number, from: first.from, to: last.to, depart: first.depart, arrive: last.arrive };
+  const pillLabel = scheduledPillLabel(status, flightRealDepart(first), now, first);
+  const journeyFlight = { ...item.summary, id: item.id, legs, journeyId: item.id, limited: first.limited };
+  const stripFlight = { mode, airline: item.summary.airline, number: item.summary.number, from: first.from, to: last.to, depart: first.depart, arrive: last.arrive, limited: first.limited };
   // Same reasoning as FlightCard — FlightProgress already shows the current
   // leg's route, cities, and times in one bar, so skip the otherwise-
   // duplicate ribbon + boarding-pass strip while a leg is actually airborne.
@@ -588,8 +604,8 @@ function RoundTripCard({ item, onOpen, now }) {
   const from = { ...airport(outbound.from), code: outbound.from };
   const to   = { ...airport(outbound.to),   code: outbound.to };
   const travelers = outbound.travelers.map(familyById).filter(Boolean);
-  const pillLabel = scheduledPillLabel(status, flightRealDepart(outbound), now);
-  const faUrl = isFlight && flightRealDepart(outbound) - now <= hours(48) ? flightAwareUrl(outbound) : null;
+  const pillLabel = scheduledPillLabel(status, flightRealDepart(outbound), now, outbound);
+  const faUrl = isFlight && !outbound.limited && flightRealDepart(outbound) - now <= hours(48) ? flightAwareUrl(outbound) : null;
   const showDateTag = status === "scheduled" || status === "boarding";
 
   return (
@@ -634,9 +650,9 @@ function RoundTripCard({ item, onOpen, now }) {
       >
         <span className="card__return-label">Returns {fmtDateShort(returnLeg.depart)}</span>
         <span className="card__return-row">
-          {isFlight && <span className="card__return-flight"><span className="bp-airline" style={{ ["--ac"]: airline(returnLeg.airline).color }}>{returnLeg.airline}</span>{returnLeg.number}</span>}
+          {isFlight && !returnLeg.limited && <span className="card__return-flight"><span className="bp-airline" style={{ ["--ac"]: airline(returnLeg.airline).color }}>{returnLeg.airline}</span>{returnLeg.number}</span>}
           <span className="card__return-route">{to.city} <span aria-hidden="true">→</span> {from.city}</span>
-          <span className="card__return-time">{fmtTime(returnLeg.depart)} {to.tz}</span>
+          {!returnLeg.limited && <span className="card__return-time">{fmtTime(returnLeg.depart)} {to.tz}</span>}
         </span>
       </button>
       {faUrl && (

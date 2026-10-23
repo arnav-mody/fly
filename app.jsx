@@ -57,11 +57,13 @@ function App() {
   // something to show before anyone's added a real one. A failed/pending
   // fetch just leaves this empty; nothing else breaks.
   const [dbFlights, setDbFlights] = React.useState([]);
+  // get_board() (schema.sql) returns only what this signed-in viewer may see
+  // — full detail for their own and their close circles' trips, dates and
+  // cities only for people they just follow.
   const refreshFlights = React.useCallback(() => {
     if (!window.supabaseClient) return;
     window.supabaseClient
-      .from("flights")
-      .select("*, flight_travelers(family_member_id)")
+      .rpc("get_board")
       .then(({ data, error }) => {
         if (error) { console.error("Couldn't load flights from Supabase:", error.message); return; }
         setDbFlights((data || []).map(mapDbFlight));
@@ -79,24 +81,34 @@ function App() {
   // reading the bare FAMILY array/familyById() without knowing any of this
   // is happening; bumping this counter is just what forces React to notice.
   const [, setFamilyVersion] = React.useState(0);
+  // get_people() returns everyone this viewer has a reason to see, plus how
+  // each relates to them (follows, close circle, whether they can add trips
+  // for that person) — the People tab and the traveler pickers read those.
   const refreshFamily = React.useCallback(() => {
     if (!window.supabaseClient) return;
     window.supabaseClient
-      .from("family_members")
-      .select("id, first_name, last_name, nickname, role, home_city, home_airport, tone, is_guest")
+      .rpc("get_people")
       .then(({ data, error }) => {
-        if (error) { console.error("Couldn't load the family roster from Supabase:", error.message); return; }
+        if (error) { console.error("Couldn't load people from Supabase:", error.message); return; }
+        const next = [];
         for (const row of data || []) {
           const fields = {
             first: row.first_name, last: row.last_name,
             nick: row.nickname || undefined, role: row.role || undefined,
             home: row.home_city || null, homeAirport: row.home_airport || null,
             tone: row.tone || 1, isGuest: !!row.is_guest,
+            claimed: !!row.claimed, isMe: !!row.is_me,
+            iFollow: row.i_follow || null, followsMe: row.follows_me || null,
+            inMyCircle: !!row.in_my_circle, inTheirCircle: !!row.in_their_circle,
+            canManage: !!row.can_manage,
           };
           const existing = familyById(row.id);
-          if (existing) Object.assign(existing, fields);
-          else FAMILY.push({ id: row.id, photo: null, ...fields });
+          next.push(existing ? Object.assign(existing, fields) : { id: row.id, photo: null, ...fields });
         }
+        // Replace, never just add: after a sign-out and a different sign-in,
+        // the previous person's people (and what they could manage) must not
+        // linger in the pickers.
+        FAMILY.splice(0, FAMILY.length, ...next);
         setFamilyVersion((v) => v + 1);
       });
   }, []);
@@ -324,7 +336,7 @@ function TopBar({ now, view, setView, onAdd, airborneCount, soonCount, filterIds
       <nav className="topbar__nav">
         <button data-active={view === "board"}     onClick={() => setView("board")}>Home</button>
         <button data-active={view === "calendar"}  onClick={() => setView("calendar")}>Calendar</button>
-        <button data-active={view === "travelers"} onClick={() => setView("travelers")}>Travelers</button>
+        <button data-active={view === "travelers"} onClick={() => setView("travelers")}>People</button>
       </nav>
       <div className="topbar__right">
         <PeopleFilter ids={filterIds} onChange={setFilterIds} />
@@ -572,11 +584,17 @@ function HeroBoarding({ flight, now, onOpen }) {
 // ── TravelersView ───────────────────────────────────────────────────────────
 function TravelersView({ allFlights, now, onSelectPerson, onFamilyChanged }) {
   const [addPersonOpen, setAddPersonOpen] = React.useState(false);
+  const [inviteOpen, setInviteOpen] = React.useState(false);
+  const [inviteFor, setInviteFor] = React.useState(null); // a not-yet-joined profile, or null for anyone
 
   // Guests (added just for one trip — see is_guest, schema.sql) don't belong
-  // on the general roster; this view is specifically the permanent-member
-  // directory.
-  const roster = FAMILY.filter((p) => !p.isGuest);
+  // on the general roster, and someone whose only link to the viewer is a
+  // pending request shows under Requests instead. The viewer comes first.
+  const roster = FAMILY
+    .filter((p) => !p.isGuest)
+    .filter((p) => !(p.followsMe === "pending" && !p.iFollow && !p.inMyCircle && !p.inTheirCircle && !p.canManage))
+    .sort((a, b) => (b.isMe ? 1 : 0) - (a.isMe ? 1 : 0));
+  const openInvite = (profile) => { setInviteFor(profile || null); setInviteOpen(true); };
 
   // Build per-person stats.
   const stats = roster.map((p) => {
@@ -667,7 +685,12 @@ function TravelersView({ allFlights, now, onSelectPerson, onFamilyChanged }) {
 
   return (
     <div className="travelers" data-screen-label="02 Travelers">
-      <SectionHead kicker="The roster" title="Everyone tracked here" sub="Tap a face to see only their flights on the board. Tap the upload icon to add or change a photo." />
+      <SectionHead kicker="Your people" title="Who you're connected to" sub="Tap a face to see only their trips on the board. Your close circle sees your flight details; everyone else who follows you sees dates and cities." />
+      <div className="pp__actions">
+        <button className="cta__btn" onClick={() => openInvite(null)}>＋ Invite someone</button>
+        <button className="pp__signout" onClick={() => window.supabaseClient.auth.signOut()}>Sign out</button>
+      </div>
+      <FollowRequests people={FAMILY} onChanged={() => { onFamilyChanged(); }} />
       {photoError && <div className="travelers__error">{photoError}</div>}
       <div className="travelers__grid">
         {stats.map(({ p, total, upcoming, airborne }) => (
@@ -684,7 +707,7 @@ function TravelersView({ allFlights, now, onSelectPerson, onFamilyChanged }) {
                 </div>
               </div>
             </button>
-            <label
+            {p.canManage && <label
               className="trav-card__photo-btn"
               htmlFor={`trav-photo-${p.id}`}
               onClick={(e) => e.stopPropagation()}
@@ -714,7 +737,7 @@ function TravelersView({ allFlights, now, onSelectPerson, onFamilyChanged }) {
                   </span>
                 </>
               )}
-            </label>
+            </label>}
             <div className="trav-card__home" onClick={(e) => e.stopPropagation()}>
               {homeEditing === p.id ? (
                 <div className="trav-card__home-edit">
@@ -731,13 +754,16 @@ function TravelersView({ allFlights, now, onSelectPerson, onFamilyChanged }) {
                     <button onClick={() => setHomeEditing(null)} disabled={homeSaving}>Cancel</button>
                   </div>
                 </div>
-              ) : (
+              ) : p.canManage ? (
                 <button className="trav-card__home-btn" onClick={() => startEditingHome(p)}>
                   🏠 {p.homeAirport ? airport(p.homeAirport).city : "Set home city"}
                 </button>
-              )}
+              ) : p.homeAirport ? (
+                <span className="trav-card__home-btn">🏠 {airport(p.homeAirport).city}</span>
+              ) : null}
               {homeError && homeEditing === p.id && <div className="trav-card__home-error">{homeError}</div>}
             </div>
+            <RelationControls p={p} onInvite={openInvite} onChanged={onFamilyChanged} />
           </div>
         ))}
         <button className="trav-card trav-card--add" onClick={() => setAddPersonOpen(true)}>
@@ -755,6 +781,7 @@ function TravelersView({ allFlights, now, onSelectPerson, onFamilyChanged }) {
         onClose={() => setAddPersonOpen(false)}
         onCreated={() => onFamilyChanged()}
       />
+      <InviteModal open={inviteOpen} profile={inviteFor} onClose={() => { setInviteOpen(false); onFamilyChanged(); }} />
     </div>
   );
 }
@@ -795,7 +822,11 @@ function isHexDark(h) {
   return r * 299 + g * 587 + b * 114 < 128000;
 }
 
-// ── Supabase row → app flight shape ─────────────────────────────────────────
+// ── get_board() row → app flight shape ──────────────────────────────────────
+// `limited` rows (someone you follow but aren't in the close circle of) have
+// no airline, number, clock times or note — depart/arrive are just the
+// calendar day. Cards and statuses check `limited` instead of pretending to
+// know the time (see flightStatus in data.js).
 function mapDbFlight(row) {
   return {
     id: row.id,
@@ -808,62 +839,15 @@ function mapDbFlight(row) {
     arrive: new Date(row.arrive_at),
     journeyId: row.journey_id || null,
     returnDismissed: !!row.return_dismissed,
-    travelers: (row.flight_travelers || []).map((t) => t.family_member_id),
+    travelers: row.travelers || [],
     note: row.note || undefined,
+    limited: row.detail === "limited",
   };
-}
-
-// ── PasswordGate ────────────────────────────────────────────────────────────
-// Stopgap only — NOT real access control. This just keeps the site from
-// showing anyone who stumbles on the URL the family's travel details; the
-// password itself ships in plain text in this JS file, and the Supabase
-// reads behind it are open to anyone with the publishable key regardless of
-// whether this gate is passed. Real protection (Supabase Auth + tightened
-// RLS policies) is a separate, later step.
-const GATE_PASSWORD = "moga";
-const GATE_STORAGE_KEY = "mg_gate_ok";
-
-function PasswordGate({ children }) {
-  const [unlocked, setUnlocked] = React.useState(() => {
-    try { return localStorage.getItem(GATE_STORAGE_KEY) === "1"; } catch (e) { return false; }
-  });
-  const [value, setValue] = React.useState("");
-  const [error, setError] = React.useState(false);
-
-  if (unlocked) return children;
-
-  const submit = (e) => {
-    e.preventDefault();
-    if (value.trim().toLowerCase() === GATE_PASSWORD) {
-      try { localStorage.setItem(GATE_STORAGE_KEY, "1"); } catch (e) {}
-      setUnlocked(true);
-    } else {
-      setError(true);
-    }
-  };
-
-  return (
-    <div className="gate">
-      <form className="gate__card" onSubmit={submit}>
-        <BrandMark />
-        <h1 className="gate__title">Mody-Gandhi Travel Tracker</h1>
-        <p className="gate__sub">Family only — enter the password to see the board.</p>
-        <input
-          className="gate__input"
-          type="password"
-          autoFocus
-          value={value}
-          onChange={(e) => { setValue(e.target.value); setError(false); }}
-          placeholder="Password"
-        />
-        {error && <div className="gate__error">That's not it — try again.</div>}
-        <button className="gate__btn" type="submit">Enter</button>
-      </form>
-    </div>
-  );
 }
 
 // ── mount ───────────────────────────────────────────────────────────────────
+// Sign-in (auth.jsx) replaces the old shared password: the board only renders
+// for a signed-in account attached to a profile.
 ReactDOM.createRoot(document.getElementById("root")).render(
-  <PasswordGate><App /></PasswordGate>
+  <AuthGate><App /></AuthGate>
 );

@@ -9,28 +9,14 @@
 // real wall-clock time, not this.
 const NOW = new Date();
 
-// Family members. The `tone` controls each person's monogram color so the
-// directory + avatars feel distinct without leaning on stock photos.
-// `homeAirport` is a starting default (editable from the Travelers tab —
-// see TravelersView) — it's what suppresses the "return not logged" nudge
-// when someone's landed exactly where they live, and what the Calendar's
-// "away from home" detection keys off of. These defaults are overwritten
-// as soon as the real values load from Supabase (see refreshHomes in
-// app.jsx); they're just what a fresh page shows before that fetch lands.
-// `photo` is an optional URL; Avatar falls back to the monogram when unset.
-const FAMILY = [
-  { id: "arnav",  first: "Arnav",  last: "Mody",   home: null, homeAirport: "JFK", photo: null, tone: 1 },
-  { id: "esha",   first: "Esha",   last: "Mody",   home: null, homeAirport: "ORD", photo: null, tone: 2 },
-  { id: "roopal", first: "Roopal", last: "Mody",   home: null, homeAirport: "BOM", photo: null, tone: 3 },
-  { id: "nihar",  first: "Nihar",  last: "Mody",   home: null, homeAirport: "BOM", photo: null, tone: 4 },
-  { id: "ashok",  first: "Ashok",  last: "Mody",   home: null, homeAirport: "BOM", photo: null, tone: 5 },
-  { id: "rohan",  first: "Rohan",  last: "Gandhi", home: null, homeAirport: "DCA", photo: null, tone: 6 },
-  { id: "avani",  first: "Avani",  last: "Gandhi", home: null, homeAirport: "PHL", photo: null, tone: 7 },
-  { id: "sanjay", first: "Sanjay", last: "Gandhi", home: null, homeAirport: "PHL", photo: null, tone: 8 },
-  { id: "charu",  first: "Charu",  last: "Gandhi", home: null, homeAirport: "PHL", photo: null, tone: 9 },
-  { id: "navin",  first: "Navin",  last: "Gandhi", home: null, homeAirport: "BOM", photo: null, tone: 10 },
-  { id: "ramila", first: "Ramila", last: "Gandhi", home: null, homeAirport: "BOM", photo: null, tone: 11 },
-];
+// People the signed-in viewer can see — filled from get_people() once signed
+// in (see refreshFamily in app.jsx), never hardcoded: the page source is
+// public, and with accounts each viewer gets only the people they're
+// connected to. Besides the profile fields, each entry carries how it
+// relates to the viewer (isMe, iFollow, followsMe, inMyCircle,
+// inTheirCircle, canManage). The `tone` controls each person's monogram
+// color; `photo` is an optional URL (Avatar falls back to the monogram).
+const FAMILY = [];
 
 // Airport lookup with rough lat/lon for the route map. A curated set of
 // major/common hubs worldwide — not an exhaustive global database (that'd be
@@ -457,6 +443,13 @@ const FLIGHTS = [];
 // hours late for India/Gulf/Asia/Australia ones) since the naive value
 // isn't actually the same instant as the real clock reads.
 function flightStatus(f, now = new Date()) {
+  // Someone you follow but aren't in the close circle of: only the calendar
+  // days are known, so the trip is just "upcoming" until its arrival day has
+  // passed — never "in the air" or "landed" on a guess.
+  if (f.limited) {
+    const today = viewerToday(now).getTime();
+    return today > Date.UTC(f.arrive.getUTCFullYear(), f.arrive.getUTCMonth(), f.arrive.getUTCDate()) ? "past" : "scheduled";
+  }
   const dep = flightRealDepart(f).getTime(), arr = flightRealArrive(f).getTime(), n = now.getTime();
   if (n >= arr + hours(8))                  return "past";
   if (n >= arr)                             return "landed";
