@@ -77,6 +77,16 @@ function legFromParsed(p, source) {
 
 const legReady = (leg) => !!(leg.from && leg.to && leg.date && leg.departTime);
 
+// "UA 934", "ua934", "6E 5201" → airline + number. Anything that doesn't
+// split cleanly keeps its digits as the number so nothing typed is lost.
+function splitFlight(text) {
+  const t = String(text || "").trim().toUpperCase().replace(/\s+/g, " ");
+  const m = t.match(/^([A-Z0-9]{2})\s?0*(\d{1,5}[A-Z]?)$/);
+  if (m && /[A-Z]/.test(m[1])) return { airline: m[1], number: m[2] };
+  const digits = t.replace(/\D/g, "");
+  return { airline: "", number: digits };
+}
+
 // The leg as the rest of the app sees a flight (codes, naive Dates), plus the
 // arrival resolution the form shows — or null while it's still incomplete.
 function legAsFlight(leg) {
@@ -742,43 +752,47 @@ function LegRow({ leg, dup, travelers, onChange, onRemove }) {
 
       {leg.expanded && (
         <div className="af__leg-edit-body">
-          <div className="at__mode-toggle" role="radiogroup" aria-label="How are you getting there?">
-            {["flight", "train", "car"].map((m) => (
-              <button key={m} type="button" role="radio" aria-checked={leg.mode === m} className={leg.mode === m ? "on" : ""} onClick={() => onChange({ mode: m })}>
-                <span aria-hidden="true">{window.MGData.MODE_META[m].icon}</span><span>{window.MGData.MODE_META[m].label}</span>
-              </button>
-            ))}
-          </div>
-          {isFlight && (
-            <div className="at__row">
-              <label className="at__field"><span>Airline</span>
-                <input list="af-airline-list" value={leg.airline} onChange={(e) => onChange({ airline: e.target.value.toUpperCase() })} placeholder="e.g. UA" />
-              </label>
-              <label className="at__field"><span>Flight #</span>
-                <input value={leg.number} onChange={(e) => onChange({ number: e.target.value })} placeholder="e.g. 934" inputMode="numeric" />
-              </label>
+          {/* Four short rows instead of eight full-width ones: how + flight
+              number, from + to, then each end as date + time. */}
+          <div className={`af__erow ${isFlight ? "af__erow--how" : ""}`}>
+            <div className="at__mode-toggle af__mode" role="radiogroup" aria-label="How are you getting there?">
+              {["flight", "train", "car"].map((m) => (
+                <button key={m} type="button" role="radio" aria-checked={leg.mode === m} className={leg.mode === m ? "on" : ""}
+                        onClick={() => onChange({ mode: m })} title={window.MGData.MODE_META[m].label}>
+                  <span aria-hidden="true">{window.MGData.MODE_META[m].icon}</span><span className="af__mode-label">{window.MGData.MODE_META[m].label}</span>
+                </button>
+              ))}
             </div>
-          )}
-          <div className="at__row">
+            {isFlight && (
+              <label className="at__field"><span>Flight</span>
+                <input
+                  value={leg.flightText ?? [leg.airline, leg.number].filter(Boolean).join(" ")}
+                  onChange={(e) => onChange({ flightText: e.target.value, ...splitFlight(e.target.value) })}
+                  placeholder="UA 934" autoCapitalize="characters" autoCorrect="off" spellCheck={false}
+                />
+              </label>
+            )}
+          </div>
+          <div className="af__erow af__erow--route">
             <label className="at__field"><span>From</span>
               <input list="af-airport-list" value={leg.from} onChange={(e) => onChange({ from: e.target.value })} placeholder="City or airport" />
             </label>
+            <span className="af__erow-arrow" aria-hidden="true">→</span>
             <label className="at__field"><span>To</span>
               <input list="af-airport-list" value={leg.to} onChange={(e) => onChange({ to: e.target.value })} placeholder="City or airport" />
             </label>
           </div>
-          <label className="at__field at__field--full"><span>Date</span>
-            <input type="date" value={leg.date} onChange={(e) => onChange({ date: e.target.value })} />
-          </label>
-          <div className="at__row at__row--times">
-            <label className="at__field"><span>Departs</span>
-              <input type="time" value={leg.departTime} onChange={(e) => onChange({ departTime: e.target.value })} />
-            </label>
-            <label className="at__field"><span>Arrives{isFlight ? "" : " (optional)"}</span>
-              <input type="time" value={leg.arriveTime} onChange={(e) => onChange({ arriveTime: e.target.value })} />
-            </label>
+          <div className="af__erow af__erow--when">
+            <span className="af__erow-label">Departs</span>
+            <input type="date" aria-label="Departure date" value={leg.date} onChange={(e) => onChange({ date: e.target.value })} />
+            <input type="time" aria-label="Departure time" value={leg.departTime} onChange={(e) => onChange({ departTime: e.target.value })} />
           </div>
-          <ArriveDayField form={leg} mode={leg.mode} detected={leg.detectedOffset} onChange={(n) => onChange({ arriveDayOffset: n })} />
+          <div className="af__erow af__erow--when">
+            <span className="af__erow-label">Arrives</span>
+            <ArrivalDateInput form={leg} mode={leg.mode} onChange={(n) => onChange({ arriveDayOffset: n })} />
+            <input type="time" aria-label="Arrival time" value={leg.arriveTime} onChange={(e) => onChange({ arriveTime: e.target.value })} />
+          </div>
+          <ArrivalSummary form={leg} mode={leg.mode} />
           <div className="af__leg-actions">
             <button type="button" className="af__remove" onClick={onRemove}>Remove this {isFlight ? "flight" : "leg"}</button>
           </div>

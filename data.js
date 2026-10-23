@@ -772,13 +772,17 @@ function resolveLegTimes({ mode = "flight", from, to, date, departTime, arriveTi
   const maxMs = hours(MAX_LEG_HOURS[mode] ?? MAX_LEG_HOURS.flight);
   const plausible = (n) => durationOf(n) > 0 && durationOf(n) <= maxMs;
 
+  // Only a day that lands before takeoff gets corrected. A later day than
+  // expected might be deliberate (someone picked it), so it stands — just
+  // flagged as `long` past the ceiling so the form can ask for a second look.
   let dayOffset = requested, adjusted = false, impossible = false;
-  if (!plausible(requested)) {
+  if (durationOf(requested) <= 0) {
     const fix = ARRIVE_DAY_OFFSETS.filter(plausible).sort((x, y) => durationOf(x) - durationOf(y))[0];
     if (fix === undefined) impossible = true;
     else { dayOffset = fix; adjusted = true; }
   }
-  return { depart, arrive: arriveOn(dayOffset), dayOffset, durationMs: durationOf(dayOffset), estimated: false, adjusted, impossible, unknownZone };
+  const durationMs = durationOf(dayOffset);
+  return { depart, arrive: arriveOn(dayOffset), dayOffset, durationMs, estimated: false, adjusted, impossible, long: durationMs > maxMs, unknownZone };
 }
 
 // "Today" on the viewer's own calendar, as a UTC-midnight Date (the
@@ -951,7 +955,7 @@ window.MGData = {
   NOW, FAMILY, AIRPORTS, AIRLINES, FLIGHTS, MODE_META,
   flightStatus, familyById, airline, airport, flightAwareUrl, modeOf, modeMeta, hasLoggedReturn, isHomeArrival, hasCoords,
   viewerTime, VIEWER_TZ, flightRealDepart, flightRealArrive, flightProgress, placeTzId, placeTz,
-  resolveLegTimes, utcToZonedWallClock, daysBetweenYmd, viewerToday,
+  resolveLegTimes, utcToZonedWallClock, daysBetweenYmd, addDaysYmd, viewerToday,
   isConnectionCandidate, findConnectionCandidate, buildJourneys, pairRoundTrips, journeyStatus, itemStatus, placesMatch,
   CONNECTION_MIN_GAP, CONNECTION_MAX_GAP,
   minutes, hours, days,

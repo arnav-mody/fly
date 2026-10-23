@@ -370,48 +370,67 @@ function parsedDayOffset(p) {
   return p.arrives_next_day ? 1 : 0;
 }
 
-// An array, not an object literal — object keys that look like integers
-// iterate numerically first, which put "-1" at the bottom of the list.
-const ARRIVE_DAY_OPTIONS = [[-1, "The day before"], [0, "Same day"], [1, "Next day"], [2, "2 days later"], [3, "3 days later"]];
-const ARRIVE_DAY_LABELS = Object.fromEntries(ARRIVE_DAY_OPTIONS);
+// The arrival is an actual date someone picks, not a "same day / next day"
+// menu: it starts on the departure date and moves when someone picks a
+// later one (or a screenshot says so). Under the hood it's still a day
+// offset from departure (form.arriveDayOffset), so the departure date can
+// change and the arrival moves with it. resolveLegTimes may correct a day
+// that would land before takeoff; the field then shows the corrected date.
+const ARRIVE_OFFSET_MIN = -1, ARRIVE_OFFSET_MAX = 3;
+const fmtArriveDay = (d) => d.toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 
-// The "Arrives" day picker plus one line saying what will actually be saved
-// — the landing day and total travel time, or why that isn't checkable — so
-// a wrong day is visible before it's on the board, not after.
-function ArriveDayField({ form, onChange, mode = "flight", fallback, detected }) {
-  let summary = null, warn = false;
+function arrivalCheck(form, mode = "flight", fallback) {
   const r = form.date && form.departTime && (form.from || fallback?.from) && (form.to || fallback?.to)
     ? buildDepartArrive(form, mode, fallback) : null;
-  if (r && !r.invalid) {
-    const day = r.arrive.toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
-    const total = r.durationMs != null ? ` · ${fmtDuration(r.durationMs)} total` : "";
-    if (r.unknownZone) {
-      warn = true;
-      summary = `We don't know the time zone for one of these places, so we can't double-check these times. Lands ${day}.`;
-    } else if (r.estimated) {
-      summary = `No arrival time, so we'll estimate it: about ${fmtTime(r.arrive)} on ${day}${total}.`;
-    } else if (r.impossible) {
-      warn = true;
-      summary = "These times don't line up on any arrival day — double-check the departure and arrival times.";
-    } else if (r.adjusted) {
-      warn = true;
-      summary = `We'll save this as arriving ${ARRIVE_DAY_LABELS[r.dayOffset].toLowerCase()} (${day}${total}) — "${ARRIVE_DAY_LABELS[form.arriveDayOffset ?? 0].toLowerCase()}" would land before takeoff.`;
-    } else {
-      summary = `Lands ${day}${total}.`;
-    }
+  if (!r || r.invalid) return { r: null, summary: null, warn: false };
+  const day = fmtArriveDay(r.arrive);
+  const total = r.durationMs != null ? ` · ${fmtDuration(r.durationMs)} total` : "";
+  if (r.unknownZone) return { r, warn: true, summary: `We don't know the time zone for one of these places, so we can't double-check these times.` };
+  if (r.estimated) return { r, warn: false, summary: `No arrival time on the ticket, so we'll estimate it: about ${fmtTime(r.arrive)} on ${day}${total}.` };
+  if (r.impossible) return { r, warn: true, summary: "These times don't line up — double-check the departure and arrival times." };
+  if (r.adjusted) {
+    const picked = fmtArriveDay(new Date(`${window.MGData.addDaysYmd(form.date, form.arriveDayOffset ?? 0)}T00:00:00Z`));
+    return { r, warn: true, summary: `Arrival moved to ${day}${total} — landing on ${picked} would be before takeoff.` };
   }
+  if (r.long) return { r, warn: true, summary: `That's a ${fmtDuration(r.durationMs)} trip — double-check the arrival date.` };
+  return { r, warn: false, summary: r.durationMs != null ? `${fmtDuration(r.durationMs)} total.` : null };
+}
+
+function ArrivalDateInput({ form, onChange, mode = "flight", fallback }) {
+  const { r } = arrivalCheck(form, mode, fallback);
+  const offset = r ? r.dayOffset : (form.arriveDayOffset ?? 0);
+  const value = form.date ? window.MGData.addDaysYmd(form.date, offset) : "";
+  return (
+    <input
+      type="date" value={value} disabled={!form.date} aria-label="Arrival date"
+      onChange={(e) => {
+        if (!form.date || !e.target.value) return;
+        const n = window.MGData.daysBetweenYmd(e.target.value, form.date);
+        onChange(Math.max(ARRIVE_OFFSET_MIN, Math.min(ARRIVE_OFFSET_MAX, n)));
+      }}
+    />
+  );
+}
+
+function ArrivalSummary({ form, mode = "flight", fallback }) {
+  const { summary, warn } = arrivalCheck(form, mode, fallback);
+  return summary ? <div className={`at__hint ${warn ? "at__hint--warn" : ""}`}>{summary}</div> : null;
+}
+
+// The arrival date as its own field plus the summary line — used by the
+// edit form and the second-leg fields; the add-trip editor lays the same
+// pieces out inline.
+function ArriveDayField({ form, onChange, mode = "flight", fallback, detected }) {
   return (
     <>
       <label className="at__field at__field--full">
         <span>
-          Arrives
-          {detected && <span className="at__auto-note"> (detected from your ticket)</span>}
+          Arrival date
+          {detected && <span className="at__auto-note"> (from your ticket)</span>}
         </span>
-        <select value={form.arriveDayOffset ?? 0} onChange={(e) => onChange(Number(e.target.value))}>
-          {ARRIVE_DAY_OPTIONS.map(([n, label]) => <option key={n} value={n}>{label}</option>)}
-        </select>
+        <ArrivalDateInput form={form} onChange={onChange} mode={mode} fallback={fallback} />
       </label>
-      {summary && <div className={`at__hint ${warn ? "at__hint--warn" : ""}`}>{summary}</div>}
+      <ArrivalSummary form={form} mode={mode} fallback={fallback} />
     </>
   );
 }
