@@ -1085,6 +1085,10 @@
       .af__footer-row .at__secondary { display: none; }
       .af__footer-row .at__primary { flex: 1; }
       .af__drop { min-height: 170px; }
+      /* One route per line — "JFK 18:25 → LHR 06:30+1" broke after LHR at
+         phone width, which reads like two separate things. */
+      .af__leg-route { font-size: 0.8rem; letter-spacing: 0; white-space: nowrap; }
+      .af__leg-sum { gap: 10px; padding: 12px; }
     }
 
     /* ── Travelers view ─────────────────────────────────────────────────── */
