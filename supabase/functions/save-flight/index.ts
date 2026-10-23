@@ -18,27 +18,35 @@
 // of inserting a new one (used by AddTripModal's edit mode) — same
 // validation either way, just an update + traveler-list replace instead of
 // an insert.
+//
+// Who may write what (see can_manage in schema.sql): a new trip needs every
+// traveler to be someone the caller manages — themselves, anyone whose close
+// circle they're in, or a guest. Editing needs the caller to manage at least
+// one person already aboard, plus anyone they add.
 
-import { createClient } from "npm:@supabase/supabase-js@2";
-
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_KEY =
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("SUPABASE_SECRET_KEY")!;
+import { adminClient, canManageAll, canManageAny, CORS_HEADERS, json, requireProfile } from "../_shared/viewer.ts";
 
 const IATA3 = /^[A-Za-z]{3}$/;
 const IATA2 = /^[A-Za-z0-9]{2}$/;
 const MODES = ["flight", "train", "car"];
+const FORBIDDEN = "You can only add or change trips for yourself, guests, or people who've added you to their close circle.";
+
+async function travelersOf(supabase: ReturnType<typeof adminClient>, flightIds: string[]) {
+  const { data } = await supabase.from("flight_travelers").select("flight_id, family_member_id").in("flight_id", flightIds);
+  const byFlight = new Map<string, string[]>(flightIds.map((id) => [id, []]));
+  for (const row of data ?? []) byFlight.get(row.flight_id)?.push(row.family_member_id);
+  return byFlight;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
 
   try {
+    const supabase = adminClient();
+    const auth = await requireProfile(req, supabase);
+    if (auth.error) return auth.error;
+    const me = auth.viewer.profileId;
+
     const body = await req.json();
 
     // Lightweight path: retroactively link two already-saved legs into one
@@ -51,7 +59,10 @@ Deno.serve(async (req) => {
       if (typeof idA !== "string" || typeof idB !== "string") {
         return json({ ok: false, error: "linkFlightIds must be two flight ids" }, 400);
       }
-      const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
+      const aboard = await travelersOf(supabase, [idA, idB]);
+      for (const ids of aboard.values()) {
+        if (!(await canManageAny(supabase, me, ids))) return json({ ok: false, error: FORBIDDEN }, 403);
+      }
       const { data: rows, error: fetchErr } = await supabase
         .from("flights").select("id, journey_id").in("id", [idA, idB]);
       if (fetchErr) return json({ ok: false, error: fetchErr.message }, 500);
@@ -66,7 +77,8 @@ Deno.serve(async (req) => {
     // (see FlightCard/FlightDetailModal's Dismiss button) — just flips one
     // flag, no other field touched or re-validated.
     if (body.dismissReturn === true && typeof body.flightId === "string") {
-      const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
+      const aboard = (await travelersOf(supabase, [body.flightId])).get(body.flightId) ?? [];
+      if (!(await canManageAny(supabase, me, aboard))) return json({ ok: false, error: FORBIDDEN }, 403);
       const { error: dismissErr } = await supabase.from("flights").update({ return_dismissed: true }).eq("id", body.flightId);
       if (dismissErr) return json({ ok: false, error: dismissErr.message }, 500);
       return json({ ok: true });
@@ -104,7 +116,16 @@ Deno.serve(async (req) => {
     if (!Array.isArray(travelerIds) || travelerIds.length === 0) errors.push("at least one traveler is required");
     if (errors.length) return json({ ok: false, error: errors.join("; ") }, 400);
 
-    const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
+    if (isEdit) {
+      const current = (await travelersOf(supabase, [flightId])).get(flightId) ?? [];
+      const added = travelerIds.filter((id: string) => !current.includes(id));
+      if (!current.length) return json({ ok: false, error: "Couldn't find that trip" }, 404);
+      if (!(await canManageAny(supabase, me, current)) || !(await canManageAll(supabase, me, added))) {
+        return json({ ok: false, error: FORBIDDEN }, 403);
+      }
+    } else if (!(await canManageAll(supabase, me, travelerIds))) {
+      return json({ ok: false, error: FORBIDDEN }, 403);
+    }
 
     const fromCode = isFlight ? from_airport.toUpperCase() : String(from_airport).trim();
     const toCode   = isFlight ? to_airport.toUpperCase()   : String(to_airport).trim();
@@ -167,10 +188,3 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: String((err as Error)?.message ?? err) }, 500);
   }
 });
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-  });
-}

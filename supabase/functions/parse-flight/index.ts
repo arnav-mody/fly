@@ -20,12 +20,7 @@
 //   It's just the first leg of the same extraction.
 
 import Anthropic from "npm:@anthropic-ai/sdk@1";
-
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+import { adminClient, CORS_HEADERS, json, requireProfile } from "../_shared/viewer.ts";
 
 const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY")! });
 
@@ -160,6 +155,11 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
 
   try {
+    // Every call costs real money (a Claude request), so only signed-in
+    // family and friends can make one.
+    const auth = await requireProfile(req, adminClient());
+    if (auth.error) return auth.error;
+
     const { image, mediaType, text, multi } = await req.json();
     const hasImage = !!image && !!mediaType;
     const hasText = !!text && !!String(text).trim();
@@ -242,10 +242,3 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: String((err as Error)?.message ?? err) }, 500);
   }
 });
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-  });
-}

@@ -1,34 +1,34 @@
 // supabase/functions/delete-flight/index.ts
 //
 // Deletes a journey the family added. Like every other write, this goes
-// through an Edge Function using the secret key — the publishable key has
-// no delete policy on `flights`/`flight_travelers` (see schema.sql).
+// through an Edge Function using the secret key — signed-in viewers have no
+// write access to `flights`/`flight_travelers` (see schema.sql). Only
+// someone who can manage every traveler on the flight may delete it, so
+// nobody can remove a trip that includes a person outside their circle.
 
-import { createClient } from "npm:@supabase/supabase-js@2";
-
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_KEY =
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("SUPABASE_SECRET_KEY")!;
+import { adminClient, canManageAll, CORS_HEADERS, json, requireProfile } from "../_shared/viewer.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
 
   try {
+    const supabase = adminClient();
+    const auth = await requireProfile(req, supabase);
+    if (auth.error) return auth.error;
+
     const { flightId } = await req.json();
     if (!flightId || typeof flightId !== "string") {
       return json({ ok: false, error: "Missing flightId" }, 400);
     }
 
-    const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
+    const { data: aboard, error: aboardErr } = await supabase
+      .from("flight_travelers").select("family_member_id").eq("flight_id", flightId);
+    if (aboardErr) return json({ ok: false, error: aboardErr.message }, 500);
+    const travelers = (aboard ?? []).map((r) => r.family_member_id);
+    if (!(await canManageAll(supabase, auth.viewer.profileId, travelers))) {
+      return json({ ok: false, error: "You can only delete trips for yourself or people in whose close circle you are." }, 403);
+    }
 
-    // flight_travelers has no ON DELETE CASCADE from flights, so this needs
-    // clearing explicitly before the flight row itself can go.
     const { error: travelersErr } = await supabase.from("flight_travelers").delete().eq("flight_id", flightId);
     if (travelersErr) return json({ ok: false, error: travelersErr.message }, 500);
 
@@ -43,10 +43,3 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: String((err as Error)?.message ?? err) }, 500);
   }
 });
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-  });
-}
