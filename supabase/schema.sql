@@ -394,3 +394,11 @@ grant execute on function get_board(), get_people(), my_profile_id() to authenti
 -- Profile photos (public bucket, looked up by person id — see Avatar).
 insert into storage.buckets (id, name, public) values ('family-photos', 'family-photos', true)
 on conflict (id) do nothing;
+
+-- Edge Functions (secret key) check permissions through can_manage; revoking
+-- it from public above also took it away from the service role.
+grant execute on function can_manage(text, text) to service_role;
+
+-- A personal invite can also put the invitee in the inviter's close circle
+-- (full flight details) — the usual choice when inviting family.
+alter table invites add column if not exists close_circle boolean not null default false;
